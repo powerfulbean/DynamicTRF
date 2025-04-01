@@ -6,7 +6,6 @@ This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 ## Installation
 
-Or get the latest version from this repo:
 ```sh
     pip install git+https://github.com/powerfulbean/DynamicallyWarpedTRF.git
 ```
