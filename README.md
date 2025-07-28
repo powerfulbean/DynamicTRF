@@ -27,17 +27,16 @@ This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 
 ## Citing DynamicTRF
-Dou, J., Anderson, A. J., White, A. S., Norman-Haignere, S. V., & Lalor, E. C. (2024). Dynamic modeling of EEG responses to natural speech reveals earlier processing of predictable words. bioRxiv, 2024-08.
+Dou, J., Anderson, A. J., White, A. S., Norman-Haignere, S. V., & Lalor, E. C. (2025). Dynamic modeling of EEG responses to natural speech reveals earlier processing of predictable words. PLOS Computational Biology, 21(4), e1013006.
 ```
-@article {Dou2024.08.26.609779,
-	author = {Dou, Jin and Anderson, Andrew J. and White, Aaron S. and Norman-Haignere, Samuel V. and Lalor, Edmund C.},
-	title = {Dynamic modeling of EEG responses to natural speech reveals earlier processing of predictable words},
-	elocation-id = {2024.08.26.609779},
-	year = {2024},
-	doi = {10.1101/2024.08.26.609779},
-	publisher = {Cold Spring Harbor Laboratory},
-	URL = {https://www.biorxiv.org/content/early/2024/08/26/2024.08.26.609779},
-	eprint = {https://www.biorxiv.org/content/early/2024/08/26/2024.08.26.609779.full.pdf},
-	journal = {bioRxiv}
+@article{dou2025dynamic,
+  title={Dynamic modeling of EEG responses to natural speech reveals earlier processing of predictable words},
+  author={Dou, Jin and Anderson, Andrew J and White, Aaron S and Norman-Haignere, Samuel V and Lalor, Edmund C},
+  journal={PLOS Computational Biology},
+  volume={21},
+  number={4},
+  pages={e1013006},
+  year={2025},
+  publisher={Public Library of Science San Francisco, CA USA}
 }
 ```
