@@ -8,10 +8,10 @@ This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 ## Roadmap
 🚧 In Progress | ✅ Completed | 🧪 Testing | 🔜 Planned 
 
-### 📦 v0.0.1
+### v0.0.1
 ✅ Refactor the code while reproducing results in the paper
 
-### 📦 v1.0.0
+### v1.0.0
 🚧 remove dependency on the old mTRFpy  
 🔜 remove dependency on the old stimrespflow trainer  
 🔜 easier to use method for creating torch dataset required by the model, with code examples  
