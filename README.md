@@ -6,7 +6,7 @@ This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 
 ## Roadmap
-🚧 In Progress | ✅ Completed | 🧪 Testing | 🔜 Planned 
+ 🔜 Planned | 🚧 In Progress | 🧪 Testing | ✅ Completed 
 
 ### v0.0.1
 ✅ Refactor the code while reproducing results in the paper
