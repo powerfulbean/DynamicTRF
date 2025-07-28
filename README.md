@@ -4,10 +4,22 @@ The code for [Dynamic modeling of EEG responses to natural speech reveals earlie
 
 This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
+## Roadmap
+🚧 In Progress | ✅ Completed | 🧪 Testing | 🔜 Planned | 📦 Released
+
+✅ Refactor the code while reproducing results in the paper
+📦 release v0.0.1
+🔜 remove dependency on the old mTRFpy
+🔜 remove dependency on the old stimrespflow trainer
+🔜 easier to use method for creating torch dataset required by the model, with code examples
+🔜 switched to light-weight stimrespflow library, with light-weight trainer
+🔜 user-friendly function to start dynamic TRF analysis, with just one call
+
+
 ## Installation
 
 ```sh
-    pip install git+https://github.com/powerfulbean/DynamicallyWarpedTRF.git
+    pip install git+https://github.com/powerfulbean/DynamicTRF.git
 ```
 
 
