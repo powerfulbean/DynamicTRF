@@ -5,11 +5,10 @@ The code for [Dynamic modeling of EEG responses to natural speech reveals earlie
 This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 
-=======
 ## Roadmap
 🚧 In Progress | ✅ Completed | 🧪 Testing | 🔜 Planned | 📦 Released
 
-### 📦 release v0.0.1
+### 📦 v0.0.1
 - ✅ Refactor the code while reproducing results in the paper
 
 ### 🔜 v1.0.0
