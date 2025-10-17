@@ -1,15 +1,16 @@
-from datetime import datetime
-import numpy as np
+from typing import List, Any, Tuple
+
 import torch
+import numpy as np
+
 from matplotlib import pyplot as plt
-from StimRespFlow.Engines.ResearchManage import CStudy,CExpr
-from StimRespFlow.DataProcessing.DeepLearning.Trainer import CTrainer,fPickPredTrueFromOutputT
-from StimRespFlow.DataProcessing.DeepLearning.Metrics import CMPearsonr
-from dynamically_warped_trf.utils import count_parameters
-from dynamically_warped_trf.utils.io import pickle_save, CLog
-from dynamically_warped_trf.mTRFpy.DataStruct import buildListFromSRFDataset
-from dynamically_warped_trf.mTRFpy import Model as mtrfModel
-from dynamically_warped_trf.core.model import (
+# from StimRespFlow.Engines.ResearchManage import CStudy,CExpr
+# from StimRespFlow.DataProcessing.DeepLearning.Trainer import CTrainer,fPickPredTrueFromOutputT
+# from StimRespFlow.DataProcessing.DeepLearning.Metrics import CMPearsonr
+from dynamic_trf import k_folds
+from dynamic_trf.utils import count_parameters, k_folds
+from dynamic_trf.utils.io import pickle_save, CLog
+from dynamic_trf.core.model import (
     CTrainForwardFunc, 
     CEvalForwardFunc, 
     TwoMixedTRF, 
@@ -17,14 +18,86 @@ from dynamically_warped_trf.core.model import (
     CNNTRF, 
     build_mixed_model, 
     from_pretrainedMixedRF,
-    PlotInterm
+    PlotInterm,
 )
 # from dynamically_warped_trf.core.model2 import build_mixed_model, from_pretrainedMixedRF
-from dynamically_warped_trf.core import torchdata
+from dynamic_trf.core import (
+    torchdata, NestedArrayList, NestedArrayDictList, Configuration,
+    flatten_nested_list
+)
 
-def iterFold(nFolds = 10):
-    for i in range(nFolds-1,-1,-1):#9,-1,-1l
-        yield i
+def split_data_for_subject(
+    data:List[List[Any]], i_fold:int, n_folds:int) -> Tuple[List[List[Any]],List[List[Any]],List[List[Any]]]:
+    train_data = []
+    val_data = []
+    test_data = []
+
+    f_select_data = lambda x, idxs: [x[idx] for idx in idxs]
+    for i_subj_data in data:
+        n_trials = len(i_subj_data)
+        k_folds_return = k_folds(i_fold, n_trials, n_folds)
+        idx_train, idx_val, idx_test = k_folds_return
+        train_data.append(
+            f_select_data(data, idx_train)
+        )
+        val_data.append(
+            f_select_data(data, idx_val)
+        )
+        test_data.append(
+            f_select_data(data, idx_test)
+        )
+    return train_data, val_data, test_data
+
+
+def run(control_stims:NestedArrayList, target_stims:NestedArrayDictList, resps:NestedArrayList, configs:Configuration):
+    """
+    Parameters:
+    ------------
+    control_stims: NestedArrayList
+        the timeseries of control stimuli,
+        nested List of numpy array each item of the outer list corresponding to one subject, each item of the inner list corresponding to one trial
+        the size of it is [# of subject * [# of trials * (n_samples, n_channels)]]
+    target_stims: NestedArrayDictList
+        the dict of target stimuli
+        nested List of numpy array each item of the outer list corresponding to one subject, each item of the inner list corresponding to one trial
+        the size of it is [# of subject * [# of trials * StimDict]]
+    resps: NestedArrayList
+        the brain responses
+    configs: dict
+        configuration parameters of dynamic trf
+    """
+    n_folds = Configuration.nFolds
+    for i_fold in range(n_folds):
+        control_stims_splited= split_data_for_subject(
+            control_stims,
+            i_fold,
+            n_folds
+        )
+        target_stims_splited= split_data_for_subject(
+            target_stims,
+            i_fold,
+            n_folds
+        )
+        resps_splited= split_data_for_subject(
+            resps,
+            i_fold,
+            n_folds
+        )
+        
+        train_data, val_data, test_data = list(zip(
+            control_stims_splited,
+            target_stims_splited,
+            resps_splited
+        ))
+
+        train_data = [flatten_nested_list(d) for d in train_data]
+        val_data = [flatten_nested_list(d) for d in val_data]
+        test_data = [flatten_nested_list(d) for d in test_data]
+        
+        
+        
+
+
 
 def selectLambdaForMTRF(
     stimTrain,
@@ -248,33 +321,16 @@ def train_step(
     
     cnntrf:CNNTRF = oMixedRF.trfs[0]
     astrf:ASTRF = oMixedRF.trfs[1]
-    try:
-        astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-1:])
-    except:
-        #benchmark for reproduce original result, will be removed in the future
-        oMixedRF.fitFuncTRF(linW_lrgrLag[-1:])
-
-    try:
-        fig = astrf.trfsGen.basisTRF.vis()
-    except:
-        fig = oMixedRF.vis()
+    astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-1:])
+    fig = astrf.trfsGen.basisTRF.vis()
     fig.savefig(f'{trainerDir}/visFTRF.png')
     plt.close(fig)
     
     print(linW.shape)
     cnntrf.loadFromMTRFpy(linW[0:-1], linB/2,device)
-    try:
-        astrf.set_linear_weights(linW[-1:], linB/2)
-        astrf.if_enable_trfsGen = False
-        astrf.stop_update_linear()
-    except:
-        oMixedRF.set_linear_weights(linW[-1:], linB/2)
-        oMixedRF.if_enable_trfsGen = False
-        oMixedRF.stop_update_linear()
-    # print(linW,linB)
-    # oMixedRF.oNonLinTRF.ifEnableNonLin = False
-    # oMixedRF.oNonLinTRF.stopUpdateLinear()
-    # print(oModel.oNonLinTRF.LinearKernels.NS.bias.shape)
+    astrf.set_linear_weights(linW[-1:], linB/2)
+    astrf.if_enable_trfsGen = False
+    astrf.stop_update_linear()
 
     def getLinModelWB(oModel):
         cachedW1 = oModel.trfs[0].oCNN.weight.detach().cpu().numpy()

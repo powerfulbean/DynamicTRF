@@ -1,4 +1,35 @@
+from typing import NamedTuple
+
 import torch
+import numpy as np
+
+KFoldsReturn = NamedTuple(
+    'KFoldsReturn',
+    [
+        ('idx_train', np.ndarray),
+        ('idx_val', np.ndarray),
+        ('idx_test', np.ndarray)
+    ]
+)
+
+
+def k_folds(i_fold, n_trials, n_folds) -> KFoldsReturn:
+    assert n_trials >= n_folds, (n_trials,n_folds)
+    id_trials = np.arange(n_trials)
+    splits = np.array_split(id_trials, n_folds)
+
+    i_fold_val = (i_fold + 1) % n_folds
+    idx_test = splits[i_fold]
+    idx_val = splits[i_fold_val]
+    idx_train = np.concatenate(
+        [splits[i] for i in range(n_folds) if i not in [i_fold, i_fold_val]])
+
+    return KFoldsReturn(
+        idx_train = idx_train, 
+        idx_val = idx_val, 
+        idx_test = idx_test
+    )
+
 def count_parameters(model, ifName = False, oLog = None):
     if ifName:
         for name, param in model.named_parameters():
