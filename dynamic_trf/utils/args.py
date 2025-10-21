@@ -10,7 +10,7 @@ def get_arg_parser():
         help = 'name of current study',
         default = 'dynamic_trf'
     )
-    parser.add_argument('--tarDir', type=str, default = './')
+    parser.add_argument('--tarDirRoot', type=str, default = './')
     parser.add_argument(
         '--mtrf_only',
         help = 'run the mtrf analysis only',
@@ -47,7 +47,13 @@ def get_arg_parser():
         nargs=2,
         help = 'range of time lag (ms)',
         metavar=('tmin', 'tmax'),
-        default=[0, 700]
+        default=[0, 700] 
+    )
+    parser.add_argument(
+        '--extraTimeLag', 
+        type=int,
+        help = 'the additional time lag length appended and preprended to the timelag (ms)',
+        default=200 
     )
     parser.add_argument(
         '--nFolds',
@@ -63,12 +69,12 @@ def get_arg_parser():
         type=int,
         default=100
     )
-    parser.add_argument(
-        '--batchSize',
-        type= int,
-        help = 'how many runs of data being used in one round of backward propogation',
-        default=1 
-    )
+    # parser.add_argument(
+    #     '--batchSize',
+    #     type= int,
+    #     help = 'how many runs of data being used in one round of backward propogation',
+    #     default=1 
+    # )
     parser.add_argument(
         '--wd',
         type=float,
@@ -96,6 +102,7 @@ def get_arg_parser():
         help = 'the learning rate scheduler to use',
         default = 'cycle'
     )
+    parser.add_argument('--device',default='cuda', type=str)
     parser.add_argument('--randomSeed',default=42, type=int)
     
     return parser.parse_args()

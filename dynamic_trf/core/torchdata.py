@@ -1,27 +1,40 @@
 import torch
-from StimRespFlow.DataStruct.DataSet import CDataSet
+
+from tour.dataclass.stim import dictTensor_to
+
+from . import TensorList, DictTensorList
+
+CONTROL_STIM_TAG = 'control'
+TARGET_STIM_TAG = 'target'
+MODULATION_STIM_TAG = 'modulation'
+
 class TorchDataset(torch.utils.data.Dataset):
     
-    def __init__(self, dataset:CDataSet, device = 'cpu'):
-        dataset.ifOldFetchMode = False
-        self.dataset = dataset
+    def __init__(
+        self, 
+        control_stims:TensorList, 
+        target_stims:TensorList,
+        modulation_stims:TensorList, 
+        resps:TensorList, 
+        device = 'cpu'
+    ):
+        assert len(control_stims) == len(modulation_stims)
+        assert len(control_stims) == len(resps)
+        self.control_stims = control_stims
+        self.target_stims = target_stims
+        self.modulation_stims = modulation_stims
+        self.resps = resps
         self.device = device
 
     def __getitem__(self, index):
         # print('torchdata', index)
-        stim_dict, resp, _ = self.dataset[index]
-        resp = torch.FloatTensor(resp).to(self.device)
-        stim_dict_tensor = {}
-        for k in stim_dict:
-            stim = stim_dict[k]
-            if isinstance(stim, dict):
-                stim_dict_tensor[k] = {
-                    'x':torch.FloatTensor(stim['x']).to(self.device),
-                    'timeinfo':torch.FloatTensor(stim['timeinfo']).to(self.device)
-                }
-            else:
-                stim_dict_tensor[k] = torch.FloatTensor(stim).to(self.device)
+        stim_dict_tensor = {
+            CONTROL_STIM_TAG: self.control_stims[index].to(self.device),
+            TARGET_STIM_TAG: dictTensor_to(self.target_stims[index], self.device),
+            MODULATION_STIM_TAG: dictTensor_to(self.modulation_stims[index], self.device)
+        }
+        resp = self.resps[index]
         return stim_dict_tensor, resp
     
     def __len__(self):
-        return len(self.dataset)
+        return len(self.resps)

@@ -1,8 +1,15 @@
+import os
+
+import torch
 import numpy as np
 
-from dynamic_trf.utils.io import load_dataset
+from tour.dataclass.dataset import Dataset
+from tour.dataclass.io import stim_dict_from_hdf5
+
+from dynamic_trf.utils.io import (
+    tour_stimdict_ndarray_to_tensor, tour_record_ndarray_to_tensor, cat_stim_by_feat_dim)
 from dynamic_trf.utils.args import get_arg_parser
-from dynamic_trf.core import execute, NestedArrayList, NestedArrayDictList, Configuration
+from dynamic_trf.core import NestedArrayList, NestedArrayDictList, Configuration, execute
 
 if __name__ == '__main__':
 
@@ -18,17 +25,70 @@ if __name__ == '__main__':
         each item of the outer list corresponding to one subject, each item of the inner list corresponding to one trial
         the size of it is [# of subject * [# of trials * (n_samples, n_channels)]]
     """
+    torch.set_default_dtype(torch.float64)
+    data_root = r"F:"
+    eeg_file = f"{data_root}/ns.h5"
+    stim_file = f"{data_root}/ns_unipnt_lexsur_env_onset.h5"
+    control_stims_name = ['envelope_fs64', 'word_onset_fs64']
+    control_stims_combined_name = '+'.join(control_stims_name)
+    target_stim_name = 'lexical_surprisal'
+    modulation_stims_name = ['lexical_surprisal']
+    modulation_stims_combined_name = '+'.join(modulation_stims_name)
 
-    control_stims, target_stims, resps = load_dataset()
-    control_stims: NestedArrayList
-    target_stims:  NestedArrayDictList
-    resps: NestedArrayList
+    dataset = Dataset.load(eeg_file)
+    stimuli_dict = stim_dict_from_hdf5(stim_file)
+    tour_stimdict_ndarray_to_tensor(stimuli_dict)
+    tour_record_ndarray_to_tensor(dataset)
+    cat_stim_by_feat_dim(stimuli_dict, control_stims_name, is_stimdict=False)
+    cat_stim_by_feat_dim(stimuli_dict, modulation_stims_name, is_stimdict=True)
+    dataset.stimuli_dict = stimuli_dict
 
+    control_stims: NestedArrayList = []
+    target_stims:  NestedArrayDictList = []
+    modulation_stims:  NestedArrayDictList = []
+    resps: NestedArrayList = []
+
+    # iterate each subject
+    for t_stims, t_resps, t_infos, t_k in dataset.to_pairs_iter():
+        print(t_k)
+        # iterate each trial
+        trial_control_stims, trial_target_stims, trial_modulation_stims, trial_resps = [], [], [], []
+        for stim, t_resp in zip(t_stims, t_resps):
+            t_control_stim = stim[control_stims_combined_name]
+            t_target_stim = stim[target_stim_name]
+            t_modulation_stim = stim[modulation_stims_combined_name]
+            if 'tag' in t_target_stim:
+                del t_target_stim['tag']
+            if 'tag' in modulation_stims_combined_name:
+                del t_modulation_stim['tag']
+            assert torch.equal(t_target_stim['timeinfo'], t_modulation_stim['timeinfo'])
+
+            target_len = torch.round(dataset.srate * t_target_stim['timeinfo'][1][-1]).long().numpy()
+            control_len = t_control_stim.shape[-1]
+            resp_len = t_resp.shape[-1]
+            assert control_len >= target_len and resp_len >= target_len, (target_len, control_len, resp_len)
+
+            trial_control_stims.append(t_control_stim[:, :target_len])
+            trial_target_stims.append(t_target_stim)
+            trial_modulation_stims.append(t_modulation_stim)
+            trial_resps.append(t_resp[:, :target_len])
+        
+        control_stims.append(trial_control_stims)
+        target_stims.append(trial_target_stims)
+        modulation_stims.append(trial_modulation_stims)
+        resps.append(trial_resps)
+    
+    
+    extraTimeLag = 200
     args = get_arg_parser()
     default_configs = vars(args).copy()
     user_configs = {
         'contextModel': 'CausalConv',
-        'fTRFMode': '+-a,b' #real value amplitude scaling (a) amd time shifit (b)
+        'fTRFMode': '+-a,b', #real value amplitude scaling (a) amd time shifit (b)
+        'fs': 64,
+        'tarDirRoot': "F:",
+        'extraTimeLag': 200,
+        'device': 'cuda'
     }
     
     configs = default_configs.copy()
@@ -36,72 +96,6 @@ if __name__ == '__main__':
 
     configs = Configuration(**configs)
 
-    execute.run(control_stims, target_stims, resps, configs)
+    assert configs.fs > 0
 
-
-    
-    otherParam = {}
-    for k in args.__dict__:
-        otherParam[k] = args.__dict__[k]
-    ds = load_dataset(args.dataset, r'/scratch/jdou3/Mapping/dataset')
-    stimuliDict = ds.stimuliDict
-    # for k in stimuliDict:
-    #     print(stimuliDict[k].keys())
-    stimFeats = args.linStims.copy()
-    ds.stimFilterKeys = stimFeats
-
-    foldList = args.foldList
-    test_mtrf = args.test_mtrf
-    studyName = args.studyName
-    randomSeed = args.randomSeed
-    nFolds = args.nFolds
-
-    testResults = []
-    devResultsReduce = []
-    testResultsReduce = []
-
-    for i in execute.iterFold(nFolds) if len(foldList) == 0 else foldList:
-        datasets = ds.nestedKFold(i,nFolds)
-        if test_mtrf:
-            (
-                bestDevMetricsReduce, 
-                testMetricsReduce,
-                testMetrics, 
-                oExpr
-            ) = execute.test_mtrf(
-                studyName, 
-                datasets, 
-                [i,10], 
-                otherParam
-            )
-        else:
-            (
-                oTrainer,
-                bestModel,
-                modelMTRF,
-                configs,
-                bestDevMetricsReduce,
-                oRun,
-                oExpr
-            ) = execute.train(
-                studyName,
-                {i:datasets[i] for i in ['train','dev']},
-                randomSeed,[i,10],
-                otherParam,
-                args.epoch
-            )
-            (
-                testMetricsReduce,
-                testMetrics
-            ) = execute.test(
-                oTrainer,
-                bestModel,
-                modelMTRF,
-                datasets['test'],
-                oRun = oRun, 
-                otherParam = otherParam
-            )
-        print(bestDevMetricsReduce)
-        testResults.append(testMetrics)
-        devResultsReduce.append(bestDevMetricsReduce)
-        testResultsReduce.append(testMetricsReduce)
+    execute.run(control_stims, target_stims, modulation_stims, resps, configs)
