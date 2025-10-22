@@ -4,11 +4,13 @@ The code for [Dynamic modeling of EEG responses to natural speech reveals earlie
 
 This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
+# News
+- [2025.10.11] 🚀 Version 2.0.0 has been released! with user-friendly function to start dynamic TRF analysis.
 
 ## Roadmap
  🔜 Planned | 🚧 In Progress | 🧪 Testing | ✅ Completed 
 
-### v1.0.0
+### v2.0.0
 ✅ remove dependency on the old mTRFpy  
 ✅ remove dependency on the old stimrespflow trainer  
 ✅ easier to use method for creating torch dataset required by the model, with code examples  
