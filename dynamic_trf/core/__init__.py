@@ -35,6 +35,7 @@ class Configuration:
     fs: int = -1
     extraTimeLag: int = 200
     device:str = 'cpu'
+    checkpoint:bool = False
 
     @property
     def tarDir(self):
@@ -61,5 +62,5 @@ NestedTensorList = List[List[torch.Tensor]]
 NestedTensorDictList = List[List[StimDictTensor]]
 
 
-def flatten_nested_list(data: List[List[Any]]):
+def flatten_nested_list(data: List[List[Any]]) -> List[Any]:
     return list(chain.from_iterable(data))

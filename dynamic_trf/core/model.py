@@ -170,20 +170,24 @@ def build_mixed_model(
     nBasis = configs.nBasis
     limitOfShift_idx = configs.limitOfShift_idx
 
-    
     nTransParams = len(FuncTRFsGen.parse_trans_params(mode))
-
     control_stim_tag = CONTROL_STIM_TAG
     modulation_stim_tag = MODULATION_STIM_TAG
 
-    trf1 = CNNTRF(
-        linInDim,
-        outDim,
-        tmin_ms,
-        tmax_ms,
-        fs
-    )
+    trfs_list = []
+    feattags_list = []
+    if linInDim > 0:
+        trf1 = CNNTRF(
+            linInDim,
+            outDim,
+            tmin_ms,
+            tmax_ms,
+            fs
+        )
+        trfs_list.append(trf1)
+        feattags_list.append([control_stim_tag])
 
+    #module that estimates transformation parameter
     if isinstance(contextModel, str):
         context_model = getattr(nntrf_models, contextModel)(nonlinInDim + auxInDim, nTransParams, nNonLinWin)
     elif isinstance(contextModel, torch.nn.Module):
@@ -215,12 +219,14 @@ def build_mixed_model(
         device = device,
         verbose = False
     )
-    #module that estimates transformation parameter
     
+    trfs_list.append(trf2)
+    feattags_list.append([modulation_stim_tag])
+
     mixedRF = MixedTRF(
         device,
-        [trf1, trf2],
-        [[control_stim_tag], [modulation_stim_tag]]
+        trfs_list,
+        feattags_list
     ).to(device).to(torch.get_default_dtype())
     return mixedRF
 
@@ -228,9 +234,10 @@ def from_pretrainedMixedRF(configs, state_dict, cpu = False):
     oMixedRF = build_mixed_model(**configs)
     if isinstance(state_dict,str):
         if cpu:
-            oMixedRF.load_state_dict(torch.load(state_dict,map_location=torch.device('cpu'))['state_dict'])
+            oMixedRF.load_state_dict(
+                torch.load(state_dict,map_location=torch.device('cpu'))['model_state_dict'])
         else:
-            oMixedRF.load_state_dict(torch.load(state_dict)['state_dict'])
+            oMixedRF.load_state_dict(torch.load(state_dict)['model_state_dict'])
     else:
         oMixedRF.load_state_dict(state_dict)
     return oMixedRF

@@ -1,3 +1,4 @@
+import os
 from typing import List, Any, Tuple
 
 import torch
@@ -13,7 +14,7 @@ from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, 
 
 from .model import func_forward, from_pretrainedMixedRF
 from ..utils import count_parameters, k_folds
-from ..utils.io import align_data, checkFolder
+from ..utils.io import align_data, checkFolder, pickle_save, pickle_load
 from . import (
     data, NestedTensorList, NestedTensorDictList, Configuration,
     flatten_nested_list, ScalarTensor
@@ -38,10 +39,16 @@ def combine_control_target_stims(
         x=tar['x'], timeinfo=tar['timeinfo'], f=fs
     ) for tar in target_stims]
     combined_stims = []
-    for c_s, t_s in zip(control_stims, target_stims):
-        combined_stims.append(
-            torch.cat(align_data(c_s, t_s), dim = 0)
-        )
+    if len(control_stims) > 0:
+        for c_s, t_s in zip(control_stims, target_stims):
+            combined_stims.append(
+                torch.cat(align_data(c_s, t_s), dim = 0)
+            )
+    else:
+        for t_s in target_stims:
+            combined_stims.append(
+                t_s
+            )
     return combined_stims, resps
     
 def trf_with_best_reg(
@@ -109,7 +116,9 @@ def test_mtrf_model(
     configs: Configuration,
 ):
     # First discard the modulation stim
-    test_data = tuple(test_data[i] for i in [0,1,3])
+    test_data = list(test_data[i] for i in [0,1,3])
+    if len(test_data[0]) == 0:
+        test_data[0] = [[] for _ in test_data[1]]
 
     #based on the shape of the resps data
     # (n_subjs, n_trials_this_fold, n_resp_chans)
@@ -173,6 +182,7 @@ def run(
     configs: dict
         configuration parameters of dynamic trf
     """
+    saved_mtrf_filename = "saved_mtrf.pkl"
     logger = get_logger(configs.tarDir, if_print=True)
     logger.info('dynamic trf analysis started')
     logger = get_logger(configs.tarDir, if_print=False)
@@ -180,6 +190,7 @@ def run(
     for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
         t_tar_dir = f'{configs.tarDir}/{i_fold}'
         checkFolder(t_tar_dir)
+        t_mtrf_file = f"{t_tar_dir}/{saved_mtrf_filename}"
         logger.info(f"start the {i_fold}th fold")
         control_stims_splited= split_data_for_subject(
             control_stims,
@@ -212,8 +223,16 @@ def run(
         train_data = [flatten_nested_list(d) for d in train_data]
         val_data = [flatten_nested_list(d) for d in val_data]
 
-        t_trf, t_trf_lrg, t_wd, t_mean_r, t_r = trf_with_best_reg(
-            train_data=train_data, val_data=val_data, configs=configs)
+        if os.path.exists(t_mtrf_file):
+            t_trf, t_trf_lrg, t_wd, t_mean_r, t_r = pickle_load(t_mtrf_file)
+        else:
+            t_trf, t_trf_lrg, t_wd, t_mean_r, t_r = trf_with_best_reg(
+                train_data=train_data, val_data=val_data, configs=configs)
+            pickle_save(
+                (t_trf, t_trf_lrg, t_wd, t_mean_r, t_r),
+                t_mtrf_file
+            )
+            
     
         for i in range(t_trf.weights.shape[0]):
             plot_biosemi128(
@@ -249,6 +268,9 @@ def test_model(
     folder:str,
 ):
     
+    if len(test_data[0]) == 0:
+        test_data[0] = [[] for _ in test_data[1]]
+
     trainerDir = folder
     srate = configs.fs
     device = configs.device
@@ -319,7 +341,10 @@ def train_step(
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
-    linInDim = train_data[0][0].shape[0]
+    if len(train_data[0]) > 0:
+        linInDim = train_data[0][0].shape[0]
+    else:
+        linInDim = 0
     nonlinInDim = train_data[1][0]['x'].shape[0]
     auxInDim = train_data[2][0]['x'].shape[0] - nonlinInDim
     outDim = train_data[3][0].shape[0]
@@ -377,12 +402,17 @@ def train_step(
     logger.info(f'number of trainable parameters: {count_parameters(mixed_rf)}')#,True, oLog))
     #additionaly we also fit a linear TRF with larger time lag for non-linear shifting of TRF
     
-    cnntrf:CNNTRF = mixed_rf.trfs[0]
-    cnntrf.loadFromMTRFpy(linW[0:linInDim], linB/2,device)
+    if linInDim > 0:
+        cnntrf:CNNTRF = mixed_rf.trfs[0]
+        cnntrf.loadFromMTRFpy(linW[0:linInDim], linB/2,device)
 
     astrf:ASTRF = mixed_rf.trfs[1]
     astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-nonlinInDim:])
-    astrf.set_linear_weights(linW[-nonlinInDim:], linB/2)
+    if linInDim > 0:
+        b_to_set = linB/2
+    else:
+        b_to_set = linB
+    astrf.set_linear_weights(linW[-nonlinInDim:], b_to_set)
     astrf.if_enable_trfsGen = False
     astrf.stop_update_linear()
     fig = astrf.trfsGen.basisTRF.vis()
@@ -390,24 +420,25 @@ def train_step(
     plt.close(fig)
     
     # print(linW.shape)
+    # def getLinModelWB(oModel):
+    #     cachedW1 = oModel.trfs[0].oCNN.weight.detach().cpu().numpy()
+    #     cachedB1 = oModel.trfs[0].oCNN.bias.detach().cpu().numpy()
+    #     cachedW2 = oModel.trfs[1].ltiTRFsGen.weight.detach().cpu().numpy()
+    #     return cachedW1,cachedB1, cachedW2
 
-    def getLinModelWB(oModel):
-        cachedW1 = oModel.trfs[0].oCNN.weight.detach().cpu().numpy()
-        cachedB1 = oModel.trfs[0].oCNN.bias.detach().cpu().numpy()
-        cachedW2 = oModel.trfs[1].ltiTRFsGen.weight.detach().cpu().numpy()
-        return cachedW1,cachedB1, cachedW2
-
-    cachedWB = getLinModelWB(mixed_rf)
+    # cachedWB = getLinModelWB(mixed_rf)
 
     #validate the results are almost the same
     dldr = torch.utils.data.DataLoader(data.TorchDataset(*train_data,device = device),batch_size = 1)
     nnTRFInput = next(iter(dldr))
     # print(len(nnTRFInput), len(nnTRFInput[0]), len(nnTRFInput[1]))
     # print(mTRFpyInput.shape)
-    predTRFpy = trf.predict(mTRFpyInput)[0].cpu().numpy()
     # print(oMixedRF.parseBatch(nnTRFInput)[0].shape)
     real_feats_keys = mixed_rf.feats_keys
-    mixed_rf.feats_keys = [[data.CONTROL_STIM_TAG], [data.TARGET_STIM_TAG]]
+    if linInDim > 0:
+        mixed_rf.feats_keys = [[data.CONTROL_STIM_TAG], [data.TARGET_STIM_TAG]]
+    else:
+        mixed_rf.feats_keys = [[data.TARGET_STIM_TAG]]
 
     # control_stim_1 = mTRFpyInput[:,:2]
     # control_stim_2 = nnTRFInput[0][torchdata.CONTROL_STIM_TAG]
@@ -423,7 +454,7 @@ def train_step(
     # assert np.allclose(control_stim_1.T, control_stim_2.cpu().numpy())
     # assert np.allclose(control_stim_1_pred.T, control_stim_2_pred),\
     #       np.abs(control_stim_1_pred.T - control_stim_2_pred).max()
-
+    predTRFpy = trf.predict(mTRFpyInput)[0].cpu().numpy()
     predNNTRFOutput = mixed_rf(*nnTRFInput)
     predNNTRF = predNNTRFOutput[0].detach().cpu().numpy()[0].T
     # predNNTRF = predNNTRF[...,:1000,:]
@@ -500,11 +531,18 @@ def train_step(
         if_print_metric=False,
     )
     save_best = SaveBest(trainer_ctx,'val/r_avg', lambda old, new: old < new, tol = 20)
+
+    epoch_start_from = 0
+    if configs.checkpoint:
+        if trainer_ctx.checkpoint_exists():
+            trainer_ctx.load_checkpoint()
+            epoch_start_from = trainer_ctx.state_current_epoch + 1
+
     func_plot = PlotInterm(srate,sample_batch)
     train_torch_dl = torch.utils.data.DataLoader(train_torch_ds, batch_size=1)
     val_torch_dl = torch.utils.data.DataLoader(val_torch_ds, batch_size=1)
 
-    progress_bar = tqdm(range(configs.epoch), desc = "training", leave = False, dynamic_ncols=True)
+    progress_bar = tqdm(range(epoch_start_from, configs.epoch), desc = "training", leave = False, dynamic_ncols=True)
     for i_epoch in progress_bar:
         trainer_ctx.new_epochs()
         for batch in tqdm(train_torch_dl, desc = "batch", leave=False):
@@ -540,6 +578,10 @@ def train_step(
         # trainer_ctx.logger.info(f"epoch-{i_epoch}-{metrics_to_log}")
 
         ifUpdate, ifStop = save_best.step()
+        
+        if configs.checkpoint:
+            trainer_ctx.save_checkpoint()
+
         if ifUpdate:
             fPlot:List[plt.Figure] = func_plot(mixed_rf)
             for i_fig, fig in enumerate(fPlot):
@@ -548,6 +590,8 @@ def train_step(
         
         if ifStop:
             break
+
+
 
     logger.info(f"train step of dynamic trf complete")
 
