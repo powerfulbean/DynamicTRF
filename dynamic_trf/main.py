@@ -9,7 +9,7 @@ from tour.dataclass.io import stim_dict_from_hdf5
 from dynamic_trf.utils.io import (
     tour_stimdict_ndarray_to_tensor, tour_record_ndarray_to_tensor, cat_stim_by_feat_dim)
 from dynamic_trf.utils.args import get_arg_parser
-from dynamic_trf.core import NestedArrayList, NestedArrayDictList, Configuration, execute
+from dynamic_trf.core import NestedArrayList, NestedArrayDictList, Configuration, engine
 
 if __name__ == '__main__':
 
@@ -50,7 +50,7 @@ if __name__ == '__main__':
 
     # iterate each subject
     for t_stims, t_resps, t_infos, t_k in dataset.to_pairs_iter():
-        print(t_k)
+        # print(t_k)
         # iterate each trial
         trial_control_stims, trial_target_stims, trial_modulation_stims, trial_resps = [], [], [], []
         for stim, t_resp in zip(t_stims, t_resps):
@@ -88,7 +88,9 @@ if __name__ == '__main__':
         'fs': 64,
         'tarDirRoot': "F:",
         'extraTimeLag': 200,
-        'device': 'cuda'
+        'device': 'cuda',
+        'lr': (0.001, 0.01),
+        'checkpoint': True
     }
     
     configs = default_configs.copy()
@@ -98,4 +100,4 @@ if __name__ == '__main__':
 
     assert configs.fs > 0
 
-    execute.run(control_stims, target_stims, modulation_stims, resps, configs)
+    engine.run(control_stims, target_stims, modulation_stims, resps, configs)

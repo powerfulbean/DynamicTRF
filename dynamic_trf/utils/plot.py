@@ -1,6 +1,5 @@
 import torch
 from matplotlib import pyplot as plt
-from nntrf.models import TwoMixedTRF
 
 class PlotInterm:
     

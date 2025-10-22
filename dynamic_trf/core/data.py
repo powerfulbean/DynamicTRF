@@ -33,7 +33,7 @@ class TorchDataset(torch.utils.data.Dataset):
             TARGET_STIM_TAG: dictTensor_to(self.target_stims[index], self.device),
             MODULATION_STIM_TAG: dictTensor_to(self.modulation_stims[index], self.device)
         }
-        resp = self.resps[index]
+        resp = self.resps[index].to(self.device)
         return stim_dict_tensor, resp
     
     def __len__(self):

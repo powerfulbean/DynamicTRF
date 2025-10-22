@@ -1,4 +1,6 @@
 # from StimRespFlow.DataProcessing.DeepLearning.Trainer import CTrainerFunc
+from typing import Tuple, Dict
+
 import torch
 import numpy as np
 
@@ -6,10 +8,10 @@ from torch.nn.functional import pad
 from matplotlib import pyplot as plt
 
 from nntrf import models as nntrf_models
-from nntrf.models import CNNTRF, ASTRF, FuncTRFsGen, TwoMixedTRF, LTITRFGen, msec2Idxs, Idxs2msec, TRFAligner
+from nntrf.models import CNNTRF, ASTRF, FuncTRFsGen, MixedTRF, LTITRFGen, msec2Idxs, Idxs2msec, TRFAligner
 
 from . import Configuration
-from .torchdata import (
+from .data import (
     CONTROL_STIM_TAG,
     MODULATION_STIM_TAG,
 )
@@ -17,11 +19,10 @@ from .torchdata import (
 
 class PlotInterm:
     
-    def __init__(self,srate, sample_batch, tar_folder = None):
+    def __init__(self,srate, sample_batch):
         self.srate = srate
         self.sample_batch = sample_batch
         self.cnter = 0
-        self.tar_folder = tar_folder
     
     def plot_cnntrf(self,cnntrf:CNNTRF):
         times = cnntrf.lagTimes
@@ -32,7 +33,7 @@ class PlotInterm:
             figures.append(fig2)
         return figures
 
-    def plot_trfs(self,model:TwoMixedTRF):
+    def plot_trfs(self,model:MixedTRF):
         figures = []
         fig = plt.figure()
         cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
@@ -97,14 +98,14 @@ class PlotInterm:
             figures.append(fig) 
         return figures
 
-    def __call__(self,model:TwoMixedTRF):
+    def __call__(self,model:MixedTRF):
         self.cnter += 1
+        figures = []
         with torch.no_grad():
             model.eval()
             cnntrf:CNNTRF = model.trfs[0]
             astrf:ASTRF = model.trfs[1]
-
-            figures = []
+            
             astrf.lagTimes
             
             # plot dynamic TRFs
@@ -120,24 +121,9 @@ class PlotInterm:
     
         return figures
 
-# class CTrainForwardFunc(CTrainerFunc):
-    
-#     def func(self, engine, batch):
-#         self.trainer.optimizer.zero_grad()
-#         self.model.train()
-#         pred,y = self.model(*batch)
-#         loss= self.trainer.criterion(pred, y)
-#         # print('???',pred.shape,y.shape)
-#         loss.backward()
-#         self.trainer.optimizer.step()
-#         return None,y,pred,loss
-        
-# class CEvalForwardFunc(CTrainerFunc):
-#     def func(self, engine, batch):
-#         self.model.eval()
-#         pred,y = self.model(*batch)
-#         return None,y,pred
-
+def func_forward(model:torch.nn.Module, batch:Tuple[Dict[str, torch.Tensor], torch.Tensor]):
+    pred,y = model(*batch)
+    return pred, y
 
 def seqLast_pad_zero(seq):
     maxLen = max([i.shape[-1] for i in seq])
@@ -173,7 +159,7 @@ def build_mixed_model(
     auxInDim,
     outDim,
     configs: Configuration
-) -> TwoMixedTRF: 
+) -> MixedTRF: 
 
     tmin_ms, tmax_ms = configs.timelag
     fs = configs.fs
@@ -198,25 +184,13 @@ def build_mixed_model(
         fs
     )
 
-    trf2 = ASTRF(
-        nonlinInDim, 
-        outDim, 
-        tmin_ms, 
-        tmax_ms, 
-        fs, 
-        trfsGen = torch.nn.Identity(),
-        device = device
-    )
-    
     if isinstance(contextModel, str):
         context_model = getattr(nntrf_models, contextModel)(nonlinInDim + auxInDim, nTransParams, nNonLinWin)
     elif isinstance(contextModel, torch.nn.Module):
         context_model = contextModel
     else:
         raise ValueError('context_model should be a module or str')
-    #module that estimates transformation parameter
-    
-    # # trf2.set_trfs_gen(trfsGen)
+
     trfsGen = FuncTRFsGen(
         nonlinInDim, 
         outDim, 
@@ -231,15 +205,26 @@ def build_mixed_model(
         device = device
     )
 
-    trf2.trfsGen = trfsGen
-    mixedRF = TwoMixedTRF(
+    trf2 = ASTRF(
+        nonlinInDim, 
+        outDim, 
+        tmin_ms, 
+        tmax_ms, 
+        fs, 
+        trfsGen = trfsGen,
+        device = device,
+        verbose = False
+    )
+    #module that estimates transformation parameter
+    
+    mixedRF = MixedTRF(
         device,
         [trf1, trf2],
         [[control_stim_tag], [modulation_stim_tag]]
     ).to(device).to(torch.get_default_dtype())
     return mixedRF
 
-def from_pretrainedMixedRF(configs,state_dict,cpu = False):
+def from_pretrainedMixedRF(configs, state_dict, cpu = False):
     oMixedRF = build_mixed_model(**configs)
     if isinstance(state_dict,str):
         if cpu:

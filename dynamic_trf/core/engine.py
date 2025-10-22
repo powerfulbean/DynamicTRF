@@ -9,18 +9,20 @@ from matplotlib import pyplot as plt
 
 
 from tour.dataclass.stim import to_impulses
-from tour.torch_trainer import Context, StimRespDataset, SaveBest, BatchAccumulator, get_logger
+from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, pearsonr
+
+from .model import func_forward, from_pretrainedMixedRF
 from ..utils import count_parameters, k_folds
-from ..utils.io import pickle_save, align_data, arrays_to_device
+from ..utils.io import align_data, checkFolder
 from . import (
-    torchdata, NestedTensorList, NestedTensorDictList, Configuration,
+    data, NestedTensorList, NestedTensorDictList, Configuration,
     flatten_nested_list, ScalarTensor
 )
 
 from tray.stats import plot_biosemi128
 
 from dynamic_trf.core.model import (
-    TwoMixedTRF, 
+    MixedTRF, 
     ASTRF, 
     CNNTRF, 
     build_mixed_model, 
@@ -171,10 +173,13 @@ def run(
     configs: dict
         configuration parameters of dynamic trf
     """
-    logger = get_logger(configs.tarDir)
-    logger.info('start train step of dynamic trf')
+    logger = get_logger(configs.tarDir, if_print=True)
+    logger.info('dynamic trf analysis started')
+    logger = get_logger(configs.tarDir, if_print=False)
     n_folds = Configuration.nFolds
     for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
+        t_tar_dir = f'{configs.tarDir}/{i_fold}'
+        checkFolder(t_tar_dir)
         logger.info(f"start the {i_fold}th fold")
         control_stims_splited= split_data_for_subject(
             control_stims,
@@ -213,31 +218,102 @@ def run(
         for i in range(t_trf.weights.shape[0]):
             plot_biosemi128(
                 t_trf.weights[i].T, f'fold{i_fold} weights {i}', 
-                None, configs.tarDir, units = 'a.u.', tmin = t_trf.times[0].cpu().numpy())
+                None, t_tar_dir, units = 'a.u.', tmin = t_trf.times[0].cpu().numpy())
             
             plot_biosemi128(
                 t_trf_lrg.weights[i].T, f'larger lag fold{i_fold} weights {i}', 
-                None, configs.tarDir, units = 'a.u.', tmin = t_trf_lrg.times[0].cpu().numpy())
+                None, t_tar_dir, units = 'a.u.', tmin = t_trf_lrg.times[0].cpu().numpy())
         
-        plot_biosemi128(t_r, f'fold{i_fold} r', None, configs.tarDir, units = 'r')
+        plot_biosemi128(t_r, f'fold{i_fold} r', None, t_tar_dir, units = 'r')
 
         logger.info(f"selected lambda is: {t_wd}, the best validation prediction r is: {t_mean_r}")
 
         
         mtrf_test_rs = test_mtrf_model(t_trf, test_data, configs)
-        print(mtrf_test_rs.shape)
+        # print(mtrf_test_rs.shape)
 
         if not configs.mtrf_only:
-            train_step(t_trf, t_trf_lrg, train_data, val_data, configs, configs.randomSeed)
-        
+            mixed_rf = train_step(t_trf, t_trf_lrg, train_data, val_data, configs, t_tar_dir, configs.randomSeed)
+
+            dytrf_test_rs = test_model(mixed_rf, test_data, configs, t_tar_dir)
+
+        logger = get_logger(configs.tarDir, if_print=True)
+        logger.info('dynamic trf analysis completed')
+
+        print(mtrf_test_rs.shape, dytrf_test_rs.shape, mtrf_test_rs.mean(), dytrf_test_rs.mean())
+
+def test_model(
+    mixed_rf: MixedTRF,
+    test_data: Tuple[List[List[Any]], List[List[Any]], List[List[Any]], List[List[Any]]],
+    configs: Configuration,
+    folder:str,
+):
+    
+    trainerDir = folder
+    srate = configs.fs
+    device = configs.device
+    batchSize = configs.batchSize
+    optimStr = configs.optimizer
+    minLr,maxLr = configs.lr
+    wd1 = configs.wd
+    lrScheduler = configs.lrScheduler
+
+    f_mse = torch.nn.MSELoss()
+    def func_metrics(batch, output:Tuple[torch.Tensor, torch.Tensor]):
+        pred, y = output
+
+        r = pearsonr(
+            y.transpose(-1, -2),
+            pred.transpose(-1, -2)
+        )
+        return {
+            'loss': f_mse(y, pred),
+            'r_avg': r.mean(),
+            'r': r 
+        }
+
+    trainer_ctx = Context(
+        mixed_rf,
+        None,
+        func_metrics,
+        trainerDir,
+        if_print_metric=False
+    )
+
+    # (n_subjs, n_trials_this_fold, n_resp_chans)
+    rs = torch.zeros(
+        (len(test_data[-1]), len(test_data[-1][0]), test_data[-1][0][0].shape[0]), 
+        dtype=test_data[-1][0][0].dtype
+    )
+
+    def func_cat(values):
+        # print(torch.cat(values).shape)
+        if values[0].ndim == 0:
+            return torch.stack(values)
+        else:
+            return torch.cat(values)
+
+    for i_subj, t_test_data in enumerate(zip(*test_data)):
+        test_torch_ds = data.TorchDataset(*t_test_data, device=device)
+        test_torch_dl = torch.utils.data.DataLoader(test_torch_ds, batch_size=1)
+        metrics, _ = trainer_ctx.evaluate_dataloader(
+            'test', test_torch_dl, func_forward, f_reduce_metrics_records=func_cat
+        )
+        metrics = metrics['test/r']
+        # print(metrics.shape)
+        rs[i_subj] = metrics
+    return rs
+
 def train_step(
     trf:TRF,
     trf_lrg:TRF,
     train_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
     val_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
     configs: Configuration,
+    folder:str,
     seed = 42, 
-):
+) -> MixedTRF:
+    checkFolder(folder)
     #set torch random_seed
     torch.backends.cudnn.deterministic = True
     torch.manual_seed(seed)
@@ -255,21 +331,22 @@ def train_step(
     )[0][0].T
 
     # oLog = None
-    logger = get_logger(configs.tarDir)
+    logger = get_logger(configs.tarDir, if_print=False)
     logger.info('train step of dynamic trf start')
 
-    trainerDir = configs.tarDir
+    trainerDir = folder
     srate = configs.fs
     device = configs.device
     batchSize = configs.batchSize
     optimStr = configs.optimizer
     minLr,maxLr = configs.lr
     wd1 = configs.wd
+    lrScheduler = configs.lrScheduler
 
-    train_torch_ds = torchdata.TorchDataset(*train_data, device = device)
-    val_torch_ds = torchdata.TorchDataset(*val_data, device=device)
+    train_torch_ds = data.TorchDataset(*train_data, device = device)
+    val_torch_ds = data.TorchDataset(*val_data, device=device)
 
-    stim_dict_tensor_old, resp = torchdata.TorchDataset(*train_data, device = device)[0]
+    stim_dict_tensor_old, resp = data.TorchDataset(*train_data, device = device)[0]
     resp = resp.clone()[None,...]
     stim_dict_tensor = {}
     for k in stim_dict_tensor_old:
@@ -283,8 +360,6 @@ def train_step(
     sample_batch = (stim_dict_tensor, resp)
     assert batchSize == 1
     
-    train_torch_dl = torch.utils.data.DataLoader(train_torch_ds)
-    test_torch_dl = torch.utils.data.DataLoader(val_torch_ds)
 
     linW = trf.weights
     linB = trf.bias
@@ -297,7 +372,7 @@ def train_step(
         outDim = outDim,
     )
 
-    mixed_rf:TwoMixedTRF = build_mixed_model(**dim_info, configs=configs)
+    mixed_rf:MixedTRF = build_mixed_model(**dim_info, configs=configs)
     logger.info(f"{mixed_rf}")
     logger.info(f'number of trainable parameters: {count_parameters(mixed_rf)}')#,True, oLog))
     #additionaly we also fit a linear TRF with larger time lag for non-linear shifting of TRF
@@ -325,14 +400,14 @@ def train_step(
     cachedWB = getLinModelWB(mixed_rf)
 
     #validate the results are almost the same
-    dldr = torch.utils.data.DataLoader(torchdata.TorchDataset(*train_data,device = device),batch_size = 1)
+    dldr = torch.utils.data.DataLoader(data.TorchDataset(*train_data,device = device),batch_size = 1)
     nnTRFInput = next(iter(dldr))
     # print(len(nnTRFInput), len(nnTRFInput[0]), len(nnTRFInput[1]))
     # print(mTRFpyInput.shape)
     predTRFpy = trf.predict(mTRFpyInput)[0].cpu().numpy()
     # print(oMixedRF.parseBatch(nnTRFInput)[0].shape)
     real_feats_keys = mixed_rf.feats_keys
-    mixed_rf.feats_keys = [[torchdata.CONTROL_STIM_TAG], [torchdata.TARGET_STIM_TAG]]
+    mixed_rf.feats_keys = [[data.CONTROL_STIM_TAG], [data.TARGET_STIM_TAG]]
 
     # control_stim_1 = mTRFpyInput[:,:2]
     # control_stim_2 = nnTRFInput[0][torchdata.CONTROL_STIM_TAG]
@@ -365,7 +440,7 @@ def train_step(
     mixed_rf.feats_keys = real_feats_keys
     astrf.if_enable_trfsGen = True
     
-    stop
+
     criterion = torch.nn.MSELoss()
     params_for_train = astrf.get_params_for_train()
     if optimStr == 'AdamW':
@@ -391,7 +466,7 @@ def train_step(
 
     # oMixedRF.oNonLinTRF.stopUpdateLinear()
     astrf.stop_update_linear()
-    cycleIter = (len(datasets['train']) // batchSize) * 2
+    cycleIter = (len(train_torch_ds) // batchSize) * 2
     if lrScheduler == 'cycle':
         lr_scheduler = torch.optim.lr_scheduler.CyclicLR(optimizer,minLr,maxLr,cycleIter,mode = 'triangular2',cycle_momentum=False)
     elif lrScheduler is None:
@@ -401,39 +476,90 @@ def train_step(
         lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', patience = 4)
     else:
         raise NotImplementedError()
-
-    oTrainer = CTrainer(epoch, device, criterion, optimizer,lr_scheduler)
-    oTrainer.setDir(oLog,trainerDir)
-    oTrainer.setDataLoader(dataloaders['train'],dataloaders['dev'])
-    fPlot = PlotInterm(srate,sample_batch)
-    oTrainer.addPlotFunc(fPlot)
     
-    metricPerson = CMPearsonr(output_transform=fPickPredTrueFromOutputT,avgOutput = False)
-    oTrainer.addMetrics('corr', metricPerson)
-    bestEpoch,bestDevMetrics= oTrainer.train(oMixedRF,'corr',
-                                        trainingStep=CTrainForwardFunc,
-                                        evaluationStep=CEvalForwardFunc,
-                                        patience = 10)
-    pickle_save(model_config,oTrainer.tarFolder + '/configs.bin')
-    pickle_save(bestDevMetrics,oTrainer.tarFolder + '/devMetrics.bin')
-    bestModel:TwoMixedTRF = from_pretrainedMixedRF(model_config, oTrainer.tarFolder + '/savedModel_feedForward_best.pt')        
-    bestModel.trfs[1].if_enable_trfsGen = True
-    bestModel.trfs[1].stop_update_linear()
-    bestModel.eval()
+    f_mse = torch.nn.MSELoss()
 
-    #assert the linear part is not changed
-    newWB = getLinModelWB(bestModel)
-    assert all([np.array_equal(cachedWB[i], newWB[i]) for i in range(len(cachedWB))])
+    def func_metrics(batch, output:Tuple[torch.Tensor, torch.Tensor]):
+        pred, y = output
+
+        r = pearsonr(
+            y.transpose(-1, -2),
+            pred.transpose(-1, -2)
+        )
+        return {
+            'loss': f_mse(y, pred),
+            'r_avg': r.mean(),
+            'r': r 
+        }
+    
+    trainer_ctx = Context(
+        mixed_rf,
+        optimizer,
+        func_metrics,
+        trainerDir,
+        if_print_metric=False,
+    )
+    save_best = SaveBest(trainer_ctx,'val/r_avg', lambda old, new: old < new, tol = 20)
+    func_plot = PlotInterm(srate,sample_batch)
+    train_torch_dl = torch.utils.data.DataLoader(train_torch_ds, batch_size=1)
+    val_torch_dl = torch.utils.data.DataLoader(val_torch_ds, batch_size=1)
+
+    progress_bar = tqdm(range(configs.epoch), desc = "training", leave = False, dynamic_ncols=True)
+    for i_epoch in progress_bar:
+        trainer_ctx.new_epochs()
+        for batch in tqdm(train_torch_dl, desc = "batch", leave=False):
+            optimizer.zero_grad()
+            mixed_rf.train()
+            output = func_forward(mixed_rf, batch)
+            loss = f_mse(*output)
+            loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+        
+        collab_metrics = {}
+
+        _, train_metrics = trainer_ctx.evaluate_dataloader(
+            'train', 
+            train_torch_dl,
+            func_forward,
+            save_in_context=True
+        )
+
+        _, val_metrics = trainer_ctx.evaluate_dataloader(
+            'val', 
+            val_torch_dl,
+            func_forward,
+            save_in_context=True
+        )
+
+        collab_metrics.update(train_metrics)
+        collab_metrics.update(val_metrics)
+        progress_bar.set_postfix(collab_metrics)
+
+        metrics_to_log = {k:trainer_ctx.metrics_log[k][-1] for k in trainer_ctx.metrics_log}
+        # trainer_ctx.logger.info(f"epoch-{i_epoch}-{metrics_to_log}")
+
+        ifUpdate, ifStop = save_best.step()
+        if ifUpdate:
+            fPlot:List[plt.Figure] = func_plot(mixed_rf)
+            for i_fig, fig in enumerate(fPlot):
+                fig.savefig(f"{trainerDir}/{i_fig}.png")
+                plt.close(fig)
+        
+        if ifStop:
+            break
 
     logger.info(f"train step of dynamic trf complete")
-    oTrainer.trainer = None
-    oTrainer.evaluator = None
-    oTrainer.model = None
-    oTrainer.optimizer = None
-    oTrainer.lrScheduler = None
-    oTrainer.oLog = None
-    oTrainer.dtldTrain = None
-    oTrainer.dtldDev = None
-    oTrainer.fPlotsFunc = None
-    # stop
-    return None,model_config,oTrainer,bestEpoch,bestDevMetrics,trainerDir
+
+    model_configs = dict(
+        configs = configs
+    )
+
+    model_configs.update(dim_info)
+
+    saved_mixed_rf = from_pretrainedMixedRF(
+        model_configs,
+        save_best.target_path,
+    )
+
+    return saved_mixed_rf

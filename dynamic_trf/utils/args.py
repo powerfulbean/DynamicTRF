@@ -17,6 +17,11 @@ def get_arg_parser():
         action='store_true'
     )
     parser.add_argument(
+        '--checkpoint',
+        help = 'save and use checkpoint',
+        action='store_true'
+    )
+    parser.add_argument(
         '--contextModel', 
         type = str, 
         help = "the name of the model to generate the parameter to transform the functional TRF",
@@ -104,5 +109,6 @@ def get_arg_parser():
     )
     parser.add_argument('--device',default='cuda', type=str)
     parser.add_argument('--randomSeed',default=42, type=int)
+    
     
     return parser.parse_args()
