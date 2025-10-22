@@ -8,7 +8,7 @@ from tqdm import tqdm
 from mtrf.model import TRF
 from matplotlib import pyplot as plt
 
-
+from tour.vis import plot_biosemi128
 from tour.dataclass.stim import to_impulses
 from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, pearsonr
 
@@ -20,9 +20,7 @@ from . import (
     flatten_nested_list, ScalarTensor
 )
 
-from tray.stats import plot_biosemi128
-
-from dynamic_trf.core.model import (
+from .model import (
     MixedTRF, 
     ASTRF, 
     CNNTRF, 
@@ -81,6 +79,7 @@ def trf_with_best_reg(
         trf = TRF(direction=1)
         # train_stim = arrays_to_device(train_stim, 'cuda')
         # train_resp = arrays_to_device(train_resp, 'cuda')
+        # print([(s.shape, r.shape) for s,r in zip(train_stim, train_resp)])
         trf.train(train_stim, train_resp, fs, tmin/1000, tmax/1000, regularization=wd)
         # train_stim = arrays_to_device(train_stim, 'cpu')
         # train_resp = arrays_to_device(train_resp, 'cpu')
@@ -185,9 +184,9 @@ def run(
     saved_mtrf_filename = "saved_mtrf.pkl"
     logger = get_logger(configs.tarDir, if_print=True)
     logger.info('dynamic trf analysis started')
-    logger = get_logger(configs.tarDir, if_print=False)
     n_folds = Configuration.nFolds
     for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
+        logger = get_logger(configs.tarDir, if_print=False)
         t_tar_dir = f'{configs.tarDir}/{i_fold}'
         checkFolder(t_tar_dir)
         t_mtrf_file = f"{t_tar_dir}/{saved_mtrf_filename}"
@@ -234,16 +233,16 @@ def run(
             )
             
     
-        for i in range(t_trf.weights.shape[0]):
-            plot_biosemi128(
-                t_trf.weights[i].T, f'fold{i_fold} weights {i}', 
-                None, t_tar_dir, units = 'a.u.', tmin = t_trf.times[0].cpu().numpy())
+        # for i in range(t_trf.weights.shape[0]):
+        #     plot_biosemi128(
+        #         t_trf.weights[i].T, f'fold{i_fold} weights {i}', 
+        #         None, t_tar_dir, units = 'a.u.', tmin = t_trf.times[0].cpu().numpy())
             
-            plot_biosemi128(
-                t_trf_lrg.weights[i].T, f'larger lag fold{i_fold} weights {i}', 
-                None, t_tar_dir, units = 'a.u.', tmin = t_trf_lrg.times[0].cpu().numpy())
+        #     plot_biosemi128(
+        #         t_trf_lrg.weights[i].T, f'larger lag fold{i_fold} weights {i}', 
+        #         None, t_tar_dir, units = 'a.u.', tmin = t_trf_lrg.times[0].cpu().numpy())
         
-        plot_biosemi128(t_r, f'fold{i_fold} r', None, t_tar_dir, units = 'r')
+        # plot_biosemi128(t_r, f'fold{i_fold} r', None, t_tar_dir, units = 'r')
 
         logger.info(f"selected lambda is: {t_wd}, the best validation prediction r is: {t_mean_r}")
 
@@ -267,7 +266,7 @@ def test_model(
     configs: Configuration,
     folder:str,
 ):
-    
+    test_data = list(test_data)
     if len(test_data[0]) == 0:
         test_data[0] = [[] for _ in test_data[1]]
 
@@ -405,8 +404,9 @@ def train_step(
     if linInDim > 0:
         cnntrf:CNNTRF = mixed_rf.trfs[0]
         cnntrf.loadFromMTRFpy(linW[0:linInDim], linB/2,device)
-
-    astrf:ASTRF = mixed_rf.trfs[1]
+        astrf:ASTRF = mixed_rf.trfs[1]
+    else:
+        astrf:ASTRF = mixed_rf.trfs[0]
     astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-nonlinInDim:])
     if linInDim > 0:
         b_to_set = linB/2
@@ -579,14 +579,14 @@ def train_step(
 
         ifUpdate, ifStop = save_best.step()
         
-        if configs.checkpoint:
-            trainer_ctx.save_checkpoint()
-
         if ifUpdate:
             fPlot:List[plt.Figure] = func_plot(mixed_rf)
             for i_fig, fig in enumerate(fPlot):
                 fig.savefig(f"{trainerDir}/{i_fig}.png")
                 plt.close(fig)
+        
+        if configs.checkpoint:
+            trainer_ctx.save_checkpoint()
         
         if ifStop:
             break

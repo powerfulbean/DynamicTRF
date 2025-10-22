@@ -37,8 +37,12 @@ class PlotInterm:
         figures = []
         fig = plt.figure()
         cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
-        astrf:ASTRF = model.trfs[1]
-        feats_key = model.feats_keys[1]
+        if len(model.trfs) > 1:
+            astrf:ASTRF = model.trfs[1]
+            feats_key = model.feats_keys[1]
+        else:
+            astrf:ASTRF = model.trfs[0]
+            feats_key = model.feats_keys[0]
         feats = []
         feat_dict,_ = self.sample_batch
         for feat_key in feats_key:
@@ -103,10 +107,12 @@ class PlotInterm:
         figures = []
         with torch.no_grad():
             model.eval()
-            cnntrf:CNNTRF = model.trfs[0]
-            astrf:ASTRF = model.trfs[1]
-            
-            astrf.lagTimes
+            if len(model.trfs) > 1:
+                cnntrf:CNNTRF = model.trfs[0]
+                astrf:ASTRF = model.trfs[1]
+            else:
+                cnntrf = None
+                astrf:ASTRF = model.trfs[0]
             
             # plot dynamic TRFs
             curFigs1 = self.plot_trfs(model)
@@ -116,8 +122,9 @@ class PlotInterm:
             figures.extend(curFigs1)
             figures.extend(curFigs)
             
-            figs = self.plot_cnntrf(cnntrf)
-            figures.extend(figs)
+            if cnntrf is not None:
+                figs = self.plot_cnntrf(cnntrf)
+                figures.extend(figs)
     
         return figures
 

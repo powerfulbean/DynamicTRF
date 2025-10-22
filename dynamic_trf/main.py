@@ -63,7 +63,7 @@ if __name__ == '__main__':
                 del t_modulation_stim['tag']
             assert torch.equal(t_target_stim['timeinfo'], t_modulation_stim['timeinfo'])
 
-            target_len = torch.round(dataset.srate * t_target_stim['timeinfo'][1][-1]).long().numpy()
+            target_len = torch.ceil(dataset.srate * t_target_stim['timeinfo'][1][-1]).long().numpy()
             control_len = t_control_stim.shape[-1]
             resp_len = t_resp.shape[-1]
             assert control_len >= target_len and resp_len >= target_len, (target_len, control_len, resp_len)
@@ -90,7 +90,8 @@ if __name__ == '__main__':
         'extraTimeLag': 200,
         'device': 'cuda',
         'lr': (0.001, 0.01),
-        'checkpoint': True
+        'checkpoint': True,
+        'folderName': 'dy_trf_no_ctrl',
     }
     
     configs = default_configs.copy()
@@ -99,5 +100,5 @@ if __name__ == '__main__':
     configs = Configuration(**configs)
 
     assert configs.fs > 0
-
+    control_stims = []
     engine.run(control_stims, target_stims, modulation_stims, resps, configs)
