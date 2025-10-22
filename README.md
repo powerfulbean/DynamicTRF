@@ -5,7 +5,7 @@ The code for [Dynamic modeling of EEG responses to natural speech reveals earlie
 This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 ## News
-- [2025.10.11] 🚀 Version 2.0.0 has been released! with user-friendly function to start dynamic TRF analysis.
+- [2025.10.21] 🚀 Version 2.0.0 has been released! with user-friendly function to start dynamic TRF analysis.
 
 ## Roadmap
  🔜 Planned | 🚧 In Progress | 🧪 Testing | ✅ Completed 
