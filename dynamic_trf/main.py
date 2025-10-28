@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # the stimuli contains continuous stimuli and discrete stimuli
 
     """
-    the control_stims, target_stims, resps should be nested List of numpy array or StimDictArray (target_stims only)
+    the control_stims, target_stims, resps should be nested List of torch.Tensors or StimDictTensor (target_stims and modulation_stims)
         each item of the outer list corresponding to one subject, each item of the inner list corresponding to one trial
         the size of it is [# of subject * [# of trials * (n_samples, n_channels)]]
     """
