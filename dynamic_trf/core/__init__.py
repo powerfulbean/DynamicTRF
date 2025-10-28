@@ -8,6 +8,13 @@ import numpy as np
 
 from ..utils.io import checkFolder
 
+"""
+{
+    'x': discrete_values,
+    'timeinfo': [2, same_length_of_x] 2: wordonset and wordoffset
+}
+"""
+
 Array = TypeVar('Array')
 @dataclass
 class StimDict(Generic[Array]):
