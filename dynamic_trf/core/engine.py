@@ -384,9 +384,12 @@ def train_step(
     sample_batch = (stim_dict_tensor, resp)
     assert batchSize == 1
     
-
-    linW = trf.weights
-    linB = trf.bias
+    if trf is not None:
+        linW = trf.weights
+        linB = trf.bias
+    else:
+        linW = None
+        linB = None
     linW_lrgrLag = trf_lrg.weights
     
     dim_info = dict(
@@ -412,7 +415,8 @@ def train_step(
         b_to_set = linB/2
     else:
         b_to_set = linB
-    astrf.set_linear_weights(linW[-nonlinInDim:], b_to_set)
+    if linW is not None:
+        astrf.set_linear_weights(linW[-nonlinInDim:], b_to_set)
     astrf.if_enable_trfsGen = False
     astrf.stop_update_linear()
     fig = astrf.trfsGen.basisTRF.vis()
