@@ -85,7 +85,7 @@ class PlotInterm:
         for iIn in range(ws.shape[1]):
             fig = plt.figure()
             plt.plot(ws[:,iIn,:].numpy().T, marker='o')
-            plt.title(f'transfomrer weights {feats_key[iIn]}')
+            plt.title(f'transfomrer weights {feats_key[0]}-{iIn}')
             figures.append(fig)
         return figures
 

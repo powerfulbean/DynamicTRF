@@ -1,6 +1,8 @@
 
-from typing import List, Dict, TypeVar, Generic, Any, Annotated
-from dataclasses import dataclass, asdict
+from typing import List, Dict, TypeVar, Generic, Any, Annotated, Tuple, TypedDict
+# from typing_extensions  import TypedDict as OldTypedDict, TypeVar as OldTypeVar
+
+from dataclasses import dataclass
 from itertools import chain
 
 import torch
@@ -15,27 +17,25 @@ from ..utils.io import checkFolder
 }
 """
 
-Array = TypeVar('Array')
-@dataclass
-class StimDict(Generic[Array]):
-    x: Array
-    timeinfo: Array
+class StimDictTensor(TypedDict):
+    x: torch.Tensor
+    timeinfo: torch.Tensor
 
 @dataclass
 class Configuration:
     folderName: str = 'dynamic_trf'
-    tarDirRoot: str = './'
+    workspace: str = './'
     mtrf_only: bool = False
     contextModel: str = 'CausalConv'
     nContextWin: int = 2
     fTRFMode: str = '+-a,b'
     nBasis: int = 21
-    timelag: List[int] = (0, 700)
+    timelag: Tuple[int, int] = (0, 700)
     nFolds: int = 10
     epoch: int = 100
     batchSize: int = 1
     wd: float = 0.01
-    lr: List[float]= (0.001,0.001)
+    lr: Tuple[float, float]= (0.001,0.001)
     optimizer: str = 'AdamW'
     lrScheduler: str = 'cycle'
     randomSeed: int = 42
@@ -46,7 +46,7 @@ class Configuration:
 
     @property
     def tarDir(self):
-        out = self.tarDirRoot + '/' + self.folderName
+        out = self.workspace + '/' + self.folderName
         checkFolder(out)
         return out
     
@@ -56,12 +56,12 @@ class Configuration:
 
 ScalarTensor = Annotated[torch.Tensor, "scalar (shape=())"]
 
-StimDictArray = StimDict[np.ndarray]
-StimDictTensor = StimDict[torch.Tensor]
+# StimDictArray = StimDict[np.ndarray]
+# StimDictTensor = StimDict[torch.Tensor]
 
 
 NestedArrayList = List[List[np.ndarray]]
-NestedArrayDictList = List[List[StimDictArray]]
+# NestedArrayDictList = List[List[StimDictArray]]
 
 TensorList = List[torch.Tensor]
 DictTensorList = List[StimDictTensor]

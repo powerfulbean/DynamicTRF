@@ -6,8 +6,8 @@ from typing import List
 
 import torch
 import numpy as np
-from tour.dataclass.dataset import Dataset, align_data
 
+from tour.dataclass.dataset import Dataset, align_data
 
 
 

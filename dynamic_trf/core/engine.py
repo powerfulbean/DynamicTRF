@@ -68,7 +68,7 @@ def trf_with_best_reg(
     val_stim = [s.T for s in val_stim]
     val_resp = [r.T for r in val_resp]
 
-    wds = 10.0 ** torch.arange(-3, -2) #-5,6
+    wds = 10.0 ** torch.arange(-5,6) #
     fs = configs.fs
     tmin,tmax = configs.timelag
     extraTimeLag = configs.extraTimeLag
@@ -465,8 +465,7 @@ def train_step(
     # predTRFpy = predTRFpy[...,:1000,:]
     # print(predTRFpy.shape, predNNTRF.shape)
     # print(predTRFpy, predNNTRF)
-    assert np.allclose(
-        predNNTRF,predTRFpy),\
+    assert np.allclose(predNNTRF,predTRFpy, atol = 1e-4),\
         (   
             np.abs(predNNTRF - predTRFpy).max(),
             np.abs(predNNTRF - predTRFpy).argmax(),

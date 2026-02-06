@@ -10,7 +10,7 @@ def get_arg_parser():
         help = 'name of current study',
         default = 'dynamic_trf'
     )
-    parser.add_argument('--tarDirRoot', type=str, default = './')
+    parser.add_argument('--workspace', type=str, default = './')
     parser.add_argument(
         '--mtrf_only',
         help = 'run the mtrf analysis only',

@@ -1,52 +1,39 @@
-import os
-
 import torch
-import numpy as np
-
 from tour.dataclass.dataset import Dataset
 from tour.dataclass.io import stim_dict_from_hdf5
 
+from dynamic_trf.core import NestedTensorList, NestedTensorDictList
+import argparse
 from dynamic_trf.utils.io import (
     tour_stimdict_ndarray_to_tensor, tour_record_ndarray_to_tensor, cat_stim_by_feat_dim)
-from dynamic_trf.utils.args import get_arg_parser
-from dynamic_trf.core import NestedArrayList, NestedArrayDictList, Configuration, engine
+
+modulation_stim_names = ['lexical_surprisal', 'uniqueness_point']
 
 if __name__ == '__main__':
-
-
-    ### prepare the dataset
-
-    # load the paired stimuli and the responses
-
-    # the stimuli contains continuous stimuli and discrete stimuli
-
-    """
-    the control_stims, target_stims, resps should be nested List of torch.Tensors or StimDictTensor (target_stims and modulation_stims)
-        each item of the outer list corresponding to one subject, each item of the inner list corresponding to one trial
-        the size of it is [# of subject * [# of trials * (n_samples, n_channels)]]
-    """
-    torch.set_default_dtype(torch.float64)
-    data_root = r"F:"
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_root', type=str, default='./', help='Root directory for data files')
+    args = parser.parse_args()
+    torch.set_default_dtype(torch.float32)
+    data_root = args.data_root
     eeg_file = f"{data_root}/ns.h5"
     stim_file = f"{data_root}/ns_unipnt_lexsur_env_onset.h5"
     control_stims_name = ['envelope_fs64', 'word_onset_fs64']
     control_stims_combined_name = '+'.join(control_stims_name)
     target_stim_name = 'lexical_surprisal'
-    modulation_stims_name = ['lexical_surprisal']
-    modulation_stims_combined_name = '+'.join(modulation_stims_name)
+    modulation_stims_combined_name = '+'.join(modulation_stim_names)
 
     dataset = Dataset.load(eeg_file)
     stimuli_dict = stim_dict_from_hdf5(stim_file)
     tour_stimdict_ndarray_to_tensor(stimuli_dict)
     tour_record_ndarray_to_tensor(dataset)
     cat_stim_by_feat_dim(stimuli_dict, control_stims_name, is_stimdict=False)
-    cat_stim_by_feat_dim(stimuli_dict, modulation_stims_name, is_stimdict=True)
+    cat_stim_by_feat_dim(stimuli_dict, modulation_stim_names, is_stimdict=True)
     dataset.stimuli_dict = stimuli_dict
 
-    control_stims: NestedArrayList = []
-    target_stims:  NestedArrayDictList = []
-    modulation_stims:  NestedArrayDictList = []
-    resps: NestedArrayList = []
+    control_stims: NestedTensorList = []
+    target_stims:  NestedTensorDictList = []
+    modulation_stims:  NestedTensorDictList = []
+    resps: NestedTensorList = []
 
     # iterate each subject
     for t_stims, t_resps, t_infos, t_k in dataset.to_pairs_iter():
@@ -77,28 +64,13 @@ if __name__ == '__main__':
         target_stims.append(trial_target_stims)
         modulation_stims.append(trial_modulation_stims)
         resps.append(trial_resps)
-    
-    
-    extraTimeLag = 200
-    args = get_arg_parser()
-    default_configs = vars(args).copy()
-    user_configs = {
-        'contextModel': 'CausalConv',
-        'fTRFMode': '+-a,b', #real value amplitude scaling (a) amd time shifit (b)
-        'fs': 64,
-        'tarDirRoot': "F:",
-        'extraTimeLag': 200,
-        'device': 'cuda',
-        'lr': (0.001, 0.01),
-        'checkpoint': True,
-        'folderName': 'dy_trf_no_ctrl',
-    }
-    
-    configs = default_configs.copy()
-    configs.update(user_configs)
 
-    configs = Configuration(**configs)
-
-    assert configs.fs > 0
-    control_stims = []
-    engine.run(control_stims, target_stims, modulation_stims, resps, configs)
+    torch.save(
+        {
+            'control_stims':control_stims,
+            'target_stims': target_stims,
+            'modulation_stims': modulation_stims,
+            'resps': resps
+        },
+        f = f"{data_root}/dynamic_trf_input_examples.pt"
+    )
