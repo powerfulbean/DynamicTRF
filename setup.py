@@ -27,7 +27,7 @@ setuptools.setup(
     "numpy>=2.0.0",
     "matplotlib",
     "tqdm",
-    "tour",
+    "pytour",
     "mtrf",
     "nntrf",
   ],
