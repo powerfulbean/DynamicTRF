@@ -28,7 +28,7 @@ setuptools.setup(
     "matplotlib",
     "statsmodels",
     "tqdm",
-    "tour",
+    "pytour",
     "mtrf",
     "nntrf",
   ],
