@@ -182,9 +182,12 @@ def run(
         configuration parameters of dynamic trf
     """
     saved_mtrf_filename = "saved_mtrf.pkl"
+    test_result_filename = "testr.pt"
     logger = get_logger(configs.tarDir, if_print=True)
     logger.info('dynamic trf analysis started')
     n_folds = Configuration.nFolds
+    mtrf_rs = []
+    dytrf_rs = []
     for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
         logger = get_logger(configs.tarDir, if_print=False)
         t_tar_dir = f'{configs.tarDir}/{i_fold}'
@@ -250,15 +253,30 @@ def run(
         mtrf_test_rs = test_mtrf_model(t_trf, test_data, configs)
         # print(mtrf_test_rs.shape)
 
+        logger = get_logger(configs.tarDir, if_print=True)
+        logger.info(f"{mtrf_test_rs.shape}, {mtrf_test_rs.mean()}")
+        mtrf_rs.append(mtrf_test_rs)
         if not configs.mtrf_only:
             mixed_rf = train_step(t_trf, t_trf_lrg, train_data, val_data, configs, t_tar_dir, configs.randomSeed)
-
             dytrf_test_rs = test_model(mixed_rf, test_data, configs, t_tar_dir)
+            logger = get_logger(configs.tarDir, if_print=True)
+            logger.info('dynamic trf analysis completed')
+            logger.info(f"{dytrf_test_rs.shape}, {dytrf_test_rs.mean()}")
+            dytrf_rs.append(dytrf_test_rs)
 
-        logger = get_logger(configs.tarDir, if_print=True)
-        logger.info('dynamic trf analysis completed')
 
-        print(mtrf_test_rs.shape, dytrf_test_rs.shape, mtrf_test_rs.mean(), dytrf_test_rs.mean())
+    mtrf_rs = torch.cat(mtrf_rs,1)
+    if len(dytrf_rs) > 0:
+        dytrf_rs = torch.cat(dytrf_rs,1)
+
+    torch.save(
+        {
+            'mtrf_r': mtrf_rs,
+            'dytrf_r': dytrf_rs,
+        },
+        f"{configs.tarDir}/{test_result_filename}",
+    )
+        
 
 def test_model(
     mixed_rf: MixedTRF,

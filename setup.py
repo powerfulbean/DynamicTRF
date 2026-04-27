@@ -26,6 +26,7 @@ setuptools.setup(
     "torch>=2.0.0",
     "numpy>=2.0.0",
     "matplotlib",
+    "statsmodels",
     "tqdm",
     "tour",
     "mtrf",

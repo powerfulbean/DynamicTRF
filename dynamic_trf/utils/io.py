@@ -9,7 +9,9 @@ import numpy as np
 
 from tour.dataclass.dataset import Dataset, align_data
 
-
+def getSubFolderName(folder):
+    subfolders = [f.name for f in os.scandir(folder) if f.is_dir() ]
+    return subfolders
 
 def checkFolder(folderPath):
 #    print(folderPath)
@@ -18,6 +20,7 @@ def checkFolder(folderPath):
     if not os.path.isdir(folderPath) and not os.path.isfile(folderPath):
         warnings.warn("path: " + folderPath + " doesn't exist, and it is created")
         os.makedirs(folderPath)
+    return folderPath
 
 ''' Python Object IO'''
 def pickle_load(filePath):

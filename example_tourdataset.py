@@ -7,7 +7,7 @@ import argparse
 from dynamic_trf.utils.io import (
     tour_stimdict_ndarray_to_tensor, tour_record_ndarray_to_tensor, cat_stim_by_feat_dim)
 
-modulation_stim_names = ['lexical_surprisal', 'uniqueness_point']
+modulation_stim_names = ['lexical_surprisal', 'uniqueness_point', 'lexical_entropy']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

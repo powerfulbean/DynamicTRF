@@ -1,8 +1,27 @@
-import numpy as np
 import scipy
-from StellarInfra import siIO, siDM, plt
-from statsmodels.stats.multitest import fdrcorrection
-from StimRespFlow.visualize import plotTopoplot
+import torch
+import numpy as np
+
+from dynamic_trf.utils.io import getSubFolderName, checkFolder
+# from tray.stats import wilcoxon_fdr_test
+from tour.vis import wilcoxon_fdr_test
+# from statsmodels.stats.multitest import fdrcorrection
+# from StimRespFlow.visualize import plotTopoplot
+
+
+def collect_results_across_folds(root, target_file_name):
+    t_file = f"{root}/{target_file_name}.pt"
+    t_data = torch.load(t_file)
+    mtrf_r = t_data['mtrf_r']
+    dytrf_r = t_data['dytrf_r']
+    print(mtrf_r.shape, dytrf_r.shape)
+
+    output_folder = checkFolder(f"{root}/analysis")
+    wilcoxon_fdr_test(
+        dytrf_r.mean(1), 'dytrf', mtrf_r.mean(1), 'mtrf', alternative='greater',
+        verbose = True, folder = output_folder,
+    )
+    
 
 def testImprv(imprv, ths = 0.05):
     imprv_stat = []
