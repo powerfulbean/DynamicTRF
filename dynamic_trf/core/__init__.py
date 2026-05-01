@@ -43,6 +43,7 @@ class Configuration:
     extraTimeLag: int = 200
     device:str = 'cpu'
     checkpoint:bool = False
+    lambda_range_power: Tuple[float, float] = (-4, 4)
 
     @property
     def tarDir(self):

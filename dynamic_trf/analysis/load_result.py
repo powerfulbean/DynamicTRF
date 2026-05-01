@@ -4,7 +4,7 @@ import numpy as np
 
 from dynamic_trf.utils.io import getSubFolderName, checkFolder
 # from tray.stats import wilcoxon_fdr_test
-from tour.vis import wilcoxon_fdr_test
+from tour.vis import wilcoxon_fdr_test, wilcoxon_fdr
 # from statsmodels.stats.multitest import fdrcorrection
 # from StimRespFlow.visualize import plotTopoplot
 
@@ -17,6 +17,7 @@ def collect_results_across_folds(root, target_file_name):
     print(mtrf_r.shape, dytrf_r.shape)
 
     output_folder = checkFolder(f"{root}/analysis")
+    # print(wilcoxon_fdr(dytrf_r.mean(1), mtrf_r.mean(1),  alternative='greater'))
     wilcoxon_fdr_test(
         dytrf_r.mean(1), 'dytrf', mtrf_r.mean(1), 'mtrf', alternative='greater',
         verbose = True, folder = output_folder,

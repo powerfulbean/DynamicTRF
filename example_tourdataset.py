@@ -7,7 +7,7 @@ import argparse
 from dynamic_trf.utils.io import (
     tour_stimdict_ndarray_to_tensor, tour_record_ndarray_to_tensor, cat_stim_by_feat_dim)
 
-modulation_stim_names = ['lexical_surprisal', 'uniqueness_point', 'lexical_entropy']
+modulation_stim_names = ['lexical_surprisal', 'uniqueness_point']#, 'lexical_entropy']
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -44,10 +44,10 @@ if __name__ == '__main__':
             t_control_stim = stim[control_stims_combined_name]
             t_target_stim = stim[target_stim_name]
             t_modulation_stim = stim[modulation_stims_combined_name]
-            if 'tag' in t_target_stim:
-                del t_target_stim['tag']
-            if 'tag' in modulation_stims_combined_name:
-                del t_modulation_stim['tag']
+            # if 'tag' in t_target_stim:
+            #     del t_target_stim['tag']
+            # if 'tag' in modulation_stims_combined_name:
+            #     del t_modulation_stim['tag']
             assert torch.equal(t_target_stim['timeinfo'], t_modulation_stim['timeinfo'])
 
             target_len = torch.ceil(dataset.srate * t_target_stim['timeinfo'][1][-1]).long().numpy()

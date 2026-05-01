@@ -6,9 +6,11 @@ import numpy as np
 
 from tqdm import tqdm
 from mtrf.model import TRF
+from mtrf.stats import neg_mse
+from mtrf.stats import pearsonr as mtrf_pearsonr
 from matplotlib import pyplot as plt
 
-from tour.vis import plot_biosemi128
+from tour.vis import plot_with_montage
 from tour.dataclass.stim import to_impulses
 from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, pearsonr
 
@@ -68,7 +70,7 @@ def trf_with_best_reg(
     val_stim = [s.T for s in val_stim]
     val_resp = [r.T for r in val_resp]
 
-    wds = 10.0 ** torch.arange(-5,6) #
+    wds = 10.0 ** torch.arange(configs.lambda_range_power[0],configs.lambda_range_power[1]) #
     fs = configs.fs
     tmin,tmax = configs.timelag
     extraTimeLag = configs.extraTimeLag
@@ -76,7 +78,7 @@ def trf_with_best_reg(
     trfs = []
     
     for i, wd in enumerate(wds):
-        trf = TRF(direction=1)
+        trf = TRF(direction=1, metric=neg_mse)
         # train_stim = arrays_to_device(train_stim, 'cuda')
         # train_resp = arrays_to_device(train_resp, 'cuda')
         # print([(s.shape, r.shape) for s,r in zip(train_stim, train_resp)])
@@ -90,6 +92,7 @@ def trf_with_best_reg(
         # val_stim = arrays_to_device(val_stim, 'cpu')
         # val_resp = arrays_to_device(val_resp, 'cpu')
         rs[i] = r
+        trf.metric = mtrf_pearsonr
         trfs.append(trf)
         torch.cuda.empty_cache()
 
@@ -129,6 +132,7 @@ def test_mtrf_model(
         test_stim, test_resp = combine_control_target_stims(t_test_data, configs.fs)
         test_stim = [s.T for s in test_stim]
         test_resp = [r.T for r in test_resp]
+        # print(len(test_stim), test_stim[0].shape, len(test_resp), test_resp[0].shape)
         _,r = trf.predict(test_stim, test_resp, average=False)
         rs[i_subj] = r
     return rs
@@ -163,7 +167,8 @@ def run(
     target_stims:NestedTensorDictList, 
     modulation_stims:NestedTensorDictList,
     resps:NestedTensorList, 
-    configs:Configuration
+    configs:Configuration,
+    montage = None,
 ):
     """
     Parameters:
@@ -185,7 +190,7 @@ def run(
     test_result_filename = "testr.pt"
     logger = get_logger(configs.tarDir, if_print=True)
     logger.info('dynamic trf analysis started')
-    n_folds = Configuration.nFolds
+    n_folds = configs.nFolds
     mtrf_rs = []
     dytrf_rs = []
     for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
@@ -263,6 +268,8 @@ def run(
             logger.info('dynamic trf analysis completed')
             logger.info(f"{dytrf_test_rs.shape}, {dytrf_test_rs.mean()}")
             dytrf_rs.append(dytrf_test_rs)
+
+            plot_with_montage(montage, (dytrf_test_rs - mtrf_test_rs).mean((0,1)), 'r-imprv', None, t_tar_dir)
 
 
     mtrf_rs = torch.cat(mtrf_rs,1)
@@ -394,11 +401,12 @@ def train_step(
     for k in stim_dict_tensor_old:
         feat = stim_dict_tensor_old[k]
         if isinstance(feat, dict):
-            stim_dict_tensor[k] = {k2:feat[k2].clone()[None, ...] for k2 in feat}
+            # print(k, feat.keys())
+            stim_dict_tensor[k] = {k2:feat[k2].clone()[None, ...] if not isinstance(feat[k2], list) else feat[k2] for k2 in feat }
         else:
             stim_dict_tensor[k] = feat.clone()[None, ...]
 
-    
+    # print(stim_dict_tensor['modulation'].keys(), stim_dict_tensor['target'].keys())
     sample_batch = (stim_dict_tensor, resp)
     assert batchSize == 1
     
@@ -481,13 +489,16 @@ def train_step(
     predNNTRF = predNNTRFOutput[0].detach().cpu().numpy()[0].T
     # predNNTRF = predNNTRF[...,:1000,:]
     # predTRFpy = predTRFpy[...,:1000,:]
-    # print(predTRFpy.shape, predNNTRF.shape)
     # print(predTRFpy, predNNTRF)
-    assert np.allclose(predNNTRF,predTRFpy, atol = 1e-4),\
-        (   
-            np.abs(predNNTRF - predTRFpy).max(),
-            np.abs(predNNTRF - predTRFpy).argmax(),
+    try:
+        assert np.allclose(predNNTRF,predTRFpy, atol = 1e-4)
+    except:
+        print(   
+             predNNTRF.shape, predTRFpy.shape,
         )
+        print(np.abs(predNNTRF - predTRFpy).max(),
+            np.abs(predNNTRF - predTRFpy).argmax(),)
+        raise
     #enable non-linear
     mixed_rf.feats_keys = real_feats_keys
     astrf.if_enable_trfsGen = True
