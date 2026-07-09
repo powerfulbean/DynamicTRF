@@ -15,6 +15,7 @@ class ExampleMode(Enum):
     modulation_lexsur_unipnt = 'mod~lexsur+unipnt'
     control_modulation_unipnt = 'ctrl-mod~unipnt'
     modulation_unipnt = 'mod~unipnt'
+    control_modulation_lexsur_entropy = 'ctrl-mod~lexsur+entropy'
 
 class Config:
 
@@ -22,17 +23,18 @@ class Config:
     modulation_stim_names = modulation_stim_names
 
 
-
 if __name__ == '__main__':
     torch.set_default_dtype(torch.float32)
 
-    mode = ExampleMode.modulation_unipnt
+    fTRFMode = '+-a,b'
+    nContextWin = 1
+    mode = ExampleMode.modulation_lexsur #control_modulation_lexsur_entropy
     if mode == ExampleMode.control_modulation_lexsur:
         Config.include_control = True
         Config.modulation_stim_names = [modulation_stim_names[0]]
     elif mode == ExampleMode.control_modulation_lexsur_unipnt:
         Config.include_control = True
-        Config.modulation_stim_names = modulation_stim_names
+        Config.modulation_stim_names = [modulation_stim_names[0], modulation_stim_names[1]]
     elif mode == ExampleMode.control_modulation_unipnt:
         Config.include_control = True
         Config.modulation_stim_names = [modulation_stim_names[1]]
@@ -41,10 +43,15 @@ if __name__ == '__main__':
         Config.modulation_stim_names = [modulation_stim_names[0]]
     elif mode == ExampleMode.modulation_lexsur_unipnt:
         Config.include_control = False
-        Config.modulation_stim_names = modulation_stim_names
+        Config.modulation_stim_names = [modulation_stim_names[0], modulation_stim_names[1]]
     elif mode == ExampleMode.modulation_unipnt:
         Config.include_control = False
         Config.modulation_stim_names = [modulation_stim_names[1]]
+    elif mode == ExampleMode.control_modulation_lexsur_entropy:
+        fTRFMode = '+-a'
+        Config.include_control = True
+        Config.modulation_stim_names = [modulation_stim_names[0], modulation_stim_names[2]]
+        nContextWin = 1
     else:
         raise ValueError(f'{mode} not supproted')
 
@@ -75,7 +82,8 @@ if __name__ == '__main__':
                            modulation_stim_names.index(name) 
                            for name in Config.modulation_stim_names
                     ])],
-                   timeinfo = stims_full["timeinfo"]
+                   timeinfo = stims_full["timeinfo"],
+                   tag = stims_full["tag"]
                )
             for stims_full in stims_full_trials
         ] for stims_full_trials in modulation_stims_full
@@ -85,14 +93,16 @@ if __name__ == '__main__':
     default_configs = vars(args).copy()
     user_configs = {
         'contextModel': 'CausalConv',
-        'fTRFMode': '+-a,b', #real value amplitude scaling (a) amd time shifit (b)
+        'fTRFMode': fTRFMode, #real value amplitude scaling (a) amd time shifit (b)
         'fs': 64,
         'workspace': workspace,
         'extraTimeLag': extraTimeLag,
         'device': 'cuda',
         'lr': (0.001, 0.01),
         'checkpoint': True,
-        'folderName': f'dynamic_trf_2026_{mode.value}',
+        'folderName': f'dynamic_trf_2026_{mode.value}_05012026_ctx1',
+        'nContextWin': nContextWin,
+        'timelag': (300, 700),
     }
     
     configs = default_configs.copy()

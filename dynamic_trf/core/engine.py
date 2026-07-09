@@ -78,7 +78,7 @@ def trf_with_best_reg(
     trfs = []
     
     for i, wd in enumerate(wds):
-        trf = TRF(direction=1, metric=neg_mse)
+        trf = TRF(direction=1)#, metric=neg_mse)
         # train_stim = arrays_to_device(train_stim, 'cuda')
         # train_resp = arrays_to_device(train_resp, 'cuda')
         # print([(s.shape, r.shape) for s,r in zip(train_stim, train_resp)])
@@ -226,7 +226,7 @@ def run(
             modulation_stims_splited,
             resps_splited,
         ))
-
+        t_trf_val_data = val_data
         train_data = [flatten_nested_list(d) for d in train_data]
         val_data = [flatten_nested_list(d) for d in val_data]
 
@@ -239,7 +239,8 @@ def run(
                 (t_trf, t_trf_lrg, t_wd, t_mean_r, t_r),
                 t_mtrf_file
             )
-            
+        
+        t_val_r = test_mtrf_model(t_trf, t_trf_val_data, configs).mean().item()
     
         # for i in range(t_trf.weights.shape[0]):
         #     plot_biosemi128(
@@ -252,7 +253,7 @@ def run(
         
         # plot_biosemi128(t_r, f'fold{i_fold} r', None, t_tar_dir, units = 'r')
 
-        logger.info(f"selected lambda is: {t_wd}, the best validation prediction r is: {t_mean_r}")
+        logger.info(f"selected lambda is: {t_wd}, the best validation metric is: {t_mean_r}, the best validation r is: {t_val_r}")
 
         
         mtrf_test_rs = test_mtrf_model(t_trf, test_data, configs)
@@ -568,7 +569,10 @@ def train_step(
     if configs.checkpoint:
         if trainer_ctx.checkpoint_exists():
             trainer_ctx.load_checkpoint()
-            epoch_start_from = trainer_ctx.state_current_epoch + 1
+            if save_best.if_early_stop():
+                epoch_start_from = configs.epoch
+            else:
+                epoch_start_from = trainer_ctx.state_current_epoch + 1
 
     func_plot = PlotInterm(srate,sample_batch)
     train_torch_dl = torch.utils.data.DataLoader(train_torch_ds, batch_size=1)

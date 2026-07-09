@@ -14,7 +14,6 @@ def collect_results_across_folds(root, target_file_name):
     t_data = torch.load(t_file)
     mtrf_r = t_data['mtrf_r']
     dytrf_r = t_data['dytrf_r']
-    print(mtrf_r.shape, dytrf_r.shape)
 
     output_folder = checkFolder(f"{root}/analysis")
     # print(wilcoxon_fdr(dytrf_r.mean(1), mtrf_r.mean(1),  alternative='greater'))
@@ -22,6 +21,13 @@ def collect_results_across_folds(root, target_file_name):
         dytrf_r.mean(1), 'dytrf', mtrf_r.mean(1), 'mtrf', alternative='greater',
         verbose = True, folder = output_folder,
     )
+
+    wilcoxon_fdr_test(
+        dytrf_r.mean(1), 'dytrf', mtrf_r.mean(1), 'mtrf', alternative='greater',
+        verbose = True, folder = output_folder, fdr = False
+    )
+
+    print(mtrf_r.shape, dytrf_r.shape)
     
 
 def testImprv(imprv, ths = 0.05):

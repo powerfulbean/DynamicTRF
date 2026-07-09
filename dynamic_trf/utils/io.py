@@ -13,12 +13,13 @@ def getSubFolderName(folder):
     subfolders = [f.name for f in os.scandir(folder) if f.is_dir() ]
     return subfolders
 
-def checkFolder(folderPath):
+def checkFolder(folderPath, if_warning = True):
 #    print(folderPath)
 #    if not isinstance(folderPath,str):
 #        return
     if not os.path.isdir(folderPath) and not os.path.isfile(folderPath):
-        warnings.warn("path: " + folderPath + " doesn't exist, and it is created")
+        if if_warning:
+            warnings.warn("path: " + folderPath + " doesn't exist, and it is created")
         os.makedirs(folderPath)
     return folderPath
 
