@@ -1,7 +1,7 @@
 import torch
 from tour.dataclass.dataset import Dataset
 from tour.dataclass.io import stim_dict_from_hdf5
-
+from tour.dataclass.stim import combine_stim_dict
 from dynamic_trf.core import NestedTensorList, NestedTensorDictList
 import argparse
 from dynamic_trf.utils.io import (
@@ -17,6 +17,8 @@ if __name__ == '__main__':
     data_root = args.data_root
     eeg_file = f"{data_root}/ns.h5"
     stim_file = f"{data_root}/ns_unipnt_lexsur_env_onset.h5"
+    stim_file2 = f"{data_root}/oldman_lexical_entropy.h5"
+
     control_stims_name = ['envelope_fs64', 'word_onset_fs64']
     control_stims_combined_name = '+'.join(control_stims_name)
     target_stim_name = 'lexical_surprisal'
@@ -24,6 +26,8 @@ if __name__ == '__main__':
 
     dataset = Dataset.load(eeg_file)
     stimuli_dict = stim_dict_from_hdf5(stim_file)
+    stimuli_dict2 = stim_dict_from_hdf5(stim_file2)
+    stimuli_dict = combine_stim_dict(stimuli_dict, stimuli_dict2)
     tour_stimdict_ndarray_to_tensor(stimuli_dict)
     tour_record_ndarray_to_tensor(dataset)
     cat_stim_by_feat_dim(stimuli_dict, control_stims_name, is_stimdict=False)

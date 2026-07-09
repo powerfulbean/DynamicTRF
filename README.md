@@ -23,6 +23,8 @@ This work depends on [nnTRF](https://github.com/powerfulbean/nnTRF).
 
 ## Installation
 
+if installed in a machine with nvidia GPU(s) equipped, the cuda version of torch will be installed.
+
 ```sh
     pip install git+https://github.com/powerfulbean/DynamicTRF.git
 ```
