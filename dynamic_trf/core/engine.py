@@ -10,7 +10,7 @@ from matplotlib import pyplot as plt
 
 from tour.vis import plot_with_montage
 
-from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, pearsonr
+from tour.torch_trainer import Context, SaveBest, BatchAccumulator, get_logger, pearsonr, close_logger_handlers
 
 from .model import func_forward, from_pretrainedMixedRF
 from ..utils import count_parameters, k_folds
@@ -56,41 +56,42 @@ def split_data_for_subject(
     return train_data, val_data, test_data
 
 
+def get_dim_info(train_data:Tuple[List[Any], List[Any], List[Any], List[Any]],):
+    if len(train_data[0]) > 0:
+        linInDim = train_data[0][0].shape[0]
+    else:
+        linInDim = 0
+    nonlinInDim = train_data[1][0]['x'].shape[0]
+    auxInDim = train_data[2][0]['x'].shape[0] - nonlinInDim
+    outDim = train_data[3][0].shape[0]
+    return dict(
+        linInDim = linInDim,
+        nonlinInDim = nonlinInDim,
+        auxInDim = auxInDim,
+        outDim = outDim,
+    )
+
+
+
+
 class TrainStep:
 
     def __call__(
         self,
-        trf:TRF,
-        trf_lrg:TRF,
+        mixed_rf: MixedTRF,
         train_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
         val_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
         configs: Configuration,
         folder:str,
-        seed = 42, 
     ) -> MixedTRF:
         checkFolder(folder)
-        #set torch random_seed
-        torch.backends.cudnn.deterministic = True
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
-
-        if len(train_data[0]) > 0:
-            linInDim = train_data[0][0].shape[0]
-        else:
-            linInDim = 0
-        nonlinInDim = train_data[1][0]['x'].shape[0]
-        auxInDim = train_data[2][0]['x'].shape[0] - nonlinInDim
-        outDim = train_data[3][0].shape[0]
-
-        #get a sample test input for validating consistency between trf and nntrf
-        mTRFpyInput = combine_control_target_stims(
-            [train_data[i] for i in [0,1,3]], 
-            configs.fs,
-        )[0][0].T
 
         # oLog = None
-        logger = get_logger(configs.tarDir, if_print=False)
+        logger = get_logger(folder, if_print=False, name='dytrf/trainstep')
+        logger.info(f"{mixed_rf}")
+        logger.info(f'number of trainable parameters: {count_parameters(mixed_rf)}')#,True, oLog))
         logger.info('train step of dynamic trf start')
+
 
         trainerDir = folder
         srate = configs.fs
@@ -101,89 +102,26 @@ class TrainStep:
         wd1 = configs.wd
         lrScheduler = configs.lrScheduler
 
+        model_configs = dict(
+            configs = configs
+        )
+        dim_info = get_dim_info(train_data)
+        model_configs.update(dim_info)
+
         train_torch_ds = data.TorchDataset(*train_data, device = device)
         val_torch_ds = data.TorchDataset(*val_data, device=device)
+        stim_dict_tensor, resp = data.TorchDataset(*train_data, device = device)[0]
+        train_torch_dl = torch.utils.data.DataLoader(train_torch_ds, batch_size=1)
+        val_torch_dl = torch.utils.data.DataLoader(val_torch_ds, batch_size=1)
 
-        stim_dict_tensor_old, resp = data.TorchDataset(*train_data, device = device)[0]
-        resp = resp.clone()[None,...]
-        stim_dict_tensor = {}
-        for k in stim_dict_tensor_old:
-            feat = stim_dict_tensor_old[k]
-            if isinstance(feat, dict):
-                # print(k, feat.keys())
-                stim_dict_tensor[k] = {k2:feat[k2].clone()[None, ...] if not isinstance(feat[k2], list) else feat[k2] for k2 in feat }
-            else:
-                stim_dict_tensor[k] = feat.clone()[None, ...]
-
-        # print(stim_dict_tensor['modulation'].keys(), stim_dict_tensor['target'].keys())
-        sample_batch = (stim_dict_tensor, resp)
         assert batchSize == 1
-        
-        if trf is not None:
-            linW = trf.weights
-            linB = trf.bias
-        else:
-            linW = None
-            linB = None
-        linW_lrgrLag = trf_lrg.weights
-        
-        dim_info = dict(
-            linInDim = linInDim,
-            nonlinInDim = nonlinInDim,
-            auxInDim = auxInDim,
-            outDim = outDim,
-        )
 
-        mixed_rf:MixedTRF = build_mixed_model(**dim_info, configs=configs)
-        logger.info(f"{mixed_rf}")
-        logger.info(f'number of trainable parameters: {count_parameters(mixed_rf)}')#,True, oLog))
-        #additionaly we also fit a linear TRF with larger time lag for non-linear shifting of TRF
-        
-        if linInDim > 0:
-            cnntrf:CNNTRF = mixed_rf.trfs[0]
-            cnntrf.loadFromMTRFpy(linW[0:linInDim], linB/2,device)
+        if dim_info['linInDim'] > 0:
             astrf:ASTRF = mixed_rf.trfs[1]
         else:
             astrf:ASTRF = mixed_rf.trfs[0]
-        astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-nonlinInDim:])
-        if linInDim > 0:
-            b_to_set = linB/2
-        else:
-            b_to_set = linB
-        if linW is not None:
-            astrf.set_linear_weights(linW[-nonlinInDim:], b_to_set)
-        astrf.if_enable_trfsGen = False
-        astrf.stop_update_linear()
-        fig = astrf.trfsGen.basisTRF.vis()
-        fig.savefig(f'{trainerDir}/visFTRF.png')
-        plt.close(fig)
-        
-        #validate the results are almost the same
-        dldr = torch.utils.data.DataLoader(data.TorchDataset(*train_data,device = device),batch_size = 1)
-        nnTRFInput = next(iter(dldr))
-        real_feats_keys = mixed_rf.feats_keys
-        if linInDim > 0:
-            mixed_rf.feats_keys = [[data.CONTROL_STIM_TAG], [data.TARGET_STIM_TAG]]
-        else:
-            mixed_rf.feats_keys = [[data.TARGET_STIM_TAG]]
-
-        predTRFpy = trf.predict(mTRFpyInput)[0].cpu().numpy()
-        predNNTRFOutput = mixed_rf(*nnTRFInput)
-        predNNTRF = predNNTRFOutput[0].detach().cpu().numpy()[0].T
-        try:
-            assert np.allclose(predNNTRF,predTRFpy, atol = 1e-4)
-        except:
-            print(   
-                predNNTRF.shape, predTRFpy.shape,
-            )
-            print(np.abs(predNNTRF - predTRFpy).max(),
-                np.abs(predNNTRF - predTRFpy).argmax(),)
-            raise
-        #enable non-linear
-        mixed_rf.feats_keys = real_feats_keys
-        astrf.if_enable_trfsGen = True
-
         params_for_train = astrf.get_params_for_train()
+
         if optimStr == 'AdamW':
             optimizer = torch.optim.AdamW(
                 params = params_for_train,
@@ -251,11 +189,9 @@ class TrainStep:
                 else:
                     epoch_start_from = trainer_ctx.state_current_epoch + 1
 
-        func_plot = PlotInterm(srate,sample_batch)
-        train_torch_dl = torch.utils.data.DataLoader(train_torch_ds, batch_size=1)
-        val_torch_dl = torch.utils.data.DataLoader(val_torch_ds, batch_size=1)
-
+        func_plot = PlotInterm(srate, stim_dict_tensor, resp)
         progress_bar = tqdm(range(epoch_start_from, configs.epoch), desc = "training", leave = False, dynamic_ncols=True)
+
         for i_epoch in progress_bar:
             trainer_ctx.new_epochs()
             for batch in tqdm(train_torch_dl, desc = "batch", leave=False):
@@ -308,23 +244,100 @@ class TrainStep:
 
         logger.info(f"train step of dynamic trf complete")
 
-        model_configs = dict(
-            configs = configs
-        )
-
-        model_configs.update(dim_info)
-
         saved_mixed_rf = from_pretrainedMixedRF(
             model_configs,
             save_best.target_path,
         )
 
+        close_logger_handlers(logger)
         return saved_mixed_rf
 
 class Trainer:
 
     def __init__(self, train_step: dytrf_protocol.TrainStep = TrainStep()):
         self.train_step = train_step
+
+
+    def prepare_mixedtrf(
+        self,
+        trainerDir,
+        trf:TRF,
+        trf_lrg:TRF,
+        train_data,
+        configs: Configuration,
+        seed = 42,
+    ) -> MixedTRF:
+        #get a sample test input for validating consistency between trf and nntrf
+        torch.backends.cudnn.deterministic = True
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed(seed)
+        dim_info = get_dim_info(train_data)
+        nonlinInDim = dim_info['nonlinInDim']
+        linInDim = dim_info['linInDim']
+
+        if trf is not None:
+            linW = trf.weights
+            linB = trf.bias
+        else:
+            linW = None
+            linB = None
+        linW_lrgrLag = trf_lrg.weights
+
+        mixed_rf:MixedTRF = build_mixed_model(**dim_info, configs=configs)
+        #additionaly we also fit a linear TRF with larger time lag for non-linear shifting of TRF
+        
+        if linInDim > 0:
+            cnntrf:CNNTRF = mixed_rf.trfs[0]
+            cnntrf.loadFromMTRFpy(linW[0:linInDim], linB/2, configs.device)
+            astrf:ASTRF = mixed_rf.trfs[1]
+        else:
+            astrf:ASTRF = mixed_rf.trfs[0]
+        astrf.trfsGen.fitFuncTRF(linW_lrgrLag[-nonlinInDim:])
+        if linInDim > 0:
+            b_to_set = linB/2
+        else:
+            b_to_set = linB
+        if linW is not None:
+            astrf.set_linear_weights(linW[-nonlinInDim:], b_to_set)
+        astrf.if_enable_trfsGen = False
+        astrf.stop_update_linear()
+        fig = astrf.trfsGen.basisTRF.vis()
+        fig.savefig(f'{trainerDir}/visFTRF.png')
+        plt.close(fig)
+        
+        #validate the results are almost the same
+        dldr = torch.utils.data.DataLoader(data.TorchDataset(*train_data,device = configs.device),batch_size = 1)
+        nnTRFInput = next(iter(dldr))
+        mTRFpyInput = combine_control_target_stims(
+            [train_data[i] for i in [0,1,3]], 
+            configs.fs,
+        )[0][0].T
+                
+        real_feats_keys = mixed_rf.feats_keys
+        if linInDim > 0:
+            mixed_rf.feats_keys = [[data.CONTROL_STIM_TAG], [data.TARGET_STIM_TAG]]
+        else:
+            mixed_rf.feats_keys = [[data.TARGET_STIM_TAG]]
+
+        predTRFpy = trf.predict(mTRFpyInput)[0].cpu().numpy()
+        predNNTRFOutput = mixed_rf(*nnTRFInput)
+        predNNTRF = predNNTRFOutput[0].detach().cpu().numpy()[0].T
+        try:
+            assert np.allclose(predNNTRF,predTRFpy, atol = 1e-4)
+        except:
+            print(   
+                predNNTRF.shape, predTRFpy.shape,
+            )
+            print(np.abs(predNNTRF - predTRFpy).max(),
+                np.abs(predNNTRF - predTRFpy).argmax(),)
+            raise
+        #enable non-linear
+        mixed_rf.feats_keys = real_feats_keys
+        astrf.if_enable_trfsGen = True
+
+        astrf.stop_update_linear()
+        astrf.trfsGen.basisTRF.disable_grad_weights()
+        return mixed_rf
 
     def run(
         self,
@@ -353,13 +366,12 @@ class Trainer:
         """
         saved_mtrf_filename = "saved_mtrf.pkl"
         test_result_filename = "testr.pt"
-        logger = get_logger(configs.tarDir, if_print=True)
+        logger = get_logger(configs.tarDir, if_print=True, name='dytrf')
         logger.info('dynamic trf analysis started')
         n_folds = configs.nFolds
         mtrf_rs = []
         dytrf_rs = []
         for i_fold in tqdm(range(n_folds), desc='cross validation', leave=False):
-            logger = get_logger(configs.tarDir, if_print=False)
             t_tar_dir = f'{configs.tarDir}/{i_fold}'
             checkFolder(t_tar_dir)
             t_mtrf_file = f"{t_tar_dir}/{saved_mtrf_filename}"
@@ -411,18 +423,16 @@ class Trainer:
             
             mtrf_test_rs = test_mtrf_model(t_trf, test_data, configs)
 
-            logger = get_logger(configs.tarDir, if_print=True)
-            logger.info(f"{mtrf_test_rs.shape}, {mtrf_test_rs.mean()}")
+            logger.info(f"mtrf test r: {mtrf_test_rs.shape}, {mtrf_test_rs.mean()}")
             mtrf_rs.append(mtrf_test_rs)
             if not configs.mtrf_only:
-                mixed_rf = self.train_step(t_trf, t_trf_lrg, train_data, val_data, configs, t_tar_dir, configs.randomSeed)
+                mixed_rf = self.prepare_mixedtrf(t_tar_dir, t_trf, t_trf_lrg, train_data, configs, configs.randomSeed)
+                mixed_rf = self.train_step(mixed_rf, train_data, val_data, configs, t_tar_dir)
                 dytrf_test_rs = test_model(mixed_rf, test_data, configs, t_tar_dir)
-                logger = get_logger(configs.tarDir, if_print=True)
-                logger.info('dynamic trf analysis completed')
-                logger.info(f"{dytrf_test_rs.shape}, {dytrf_test_rs.mean()}")
+                logger.info(f"dytrf test r: {dytrf_test_rs.shape}, {dytrf_test_rs.mean()}")
                 dytrf_rs.append(dytrf_test_rs)
-
-                plot_with_montage(montage, (dytrf_test_rs - mtrf_test_rs).mean((0,1)), 'r-imprv', None, t_tar_dir)
+                if montage is not None:
+                    plot_with_montage(montage, (dytrf_test_rs - mtrf_test_rs).mean((0,1)), 'r-imprv', None, t_tar_dir)
 
 
         mtrf_rs = torch.cat(mtrf_rs,1)
@@ -436,6 +446,8 @@ class Trainer:
             },
             f"{configs.tarDir}/{test_result_filename}",
         )
+        logger.info('dynamic trf analysis completed')
+        close_logger_handlers(logger)
             
 
 def test_model(

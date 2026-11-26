@@ -9,16 +9,15 @@ from .model import (
 from mtrf.model import TRF
 
 class TrainStep(Protocol):
+
     
     def __call__(
         self,
-        trf:TRF,
-        trf_lrg:TRF,
+        mixed_rf: MixedTRF,
         train_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
         val_data:Tuple[List[Any], List[Any], List[Any], List[Any]],
         configs: Configuration,
         folder:str,
-        seed = 42, 
     ) -> MixedTRF:
         return MixedTRF('cpu', None, None)
 
@@ -26,6 +25,17 @@ class TrainStep(Protocol):
 class Trainer(Protocol):
 
     train_step: TrainStep
+
+    def prepare_mixedtrf(
+            self,
+            trainerDir,
+            trf:TRF,
+            trf_lrg:TRF,
+            train_data,
+            configs: Configuration,
+            seed = 42,
+        ) -> MixedTRF:
+        return MixedTRF(None, None, None)
 
     def run(
         self,

@@ -225,10 +225,25 @@ def _example_usage() -> None:
 
 class PlotInterm:
     
-    def __init__(self,srate, sample_batch):
+    def __init__(self,srate, stim_dict_tensor_old, resp,
+            kmeans_nsamples = 30
+        ):
+
+        resp = resp.clone()[None,...]
+        stim_dict_tensor = {}
+        for k in stim_dict_tensor_old:
+            feat = stim_dict_tensor_old[k]
+            if isinstance(feat, dict):
+                # print(k, feat.keys())
+                stim_dict_tensor[k] = {k2:feat[k2].clone()[None, ...] if not isinstance(feat[k2], list) else feat[k2] for k2 in feat }
+            else:
+                stim_dict_tensor[k] = feat.clone()[None, ...]
+        sample_batch = (stim_dict_tensor, resp)
+
         self.srate = srate
         self.sample_batch = sample_batch
         self.cnter = 0
+        self.kmeans_nsamples = kmeans_nsamples
     
     def plot_cnntrf(self,cnntrf:CNNTRF):
         times = cnntrf.lagTimes
@@ -308,7 +323,7 @@ class PlotInterm:
         fig, result = plot_points_with_samples(
             points = np.stack([aSeq, bSeq], axis = 1),
             labels = tags,
-            n_samples=30,
+            n_samples=self.kmeans_nsamples,
             seed=42,
             show_labels=True,
             method="kmeans",
@@ -348,8 +363,8 @@ class PlotInterm:
         inDim = weight.shape[1]
         for i in range(inDim):
             fig = plt.figure()
-            weight = weight[:,i,:].T
-            plt.plot(times,weight) #
+            t_weight = weight[:,i,:].T
+            plt.plot(times,t_weight) #
             figures.append(fig) 
         return figures
 

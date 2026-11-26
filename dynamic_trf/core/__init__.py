@@ -20,6 +20,7 @@ from ..utils.io import checkFolder
 class StimDictTensor(TypedDict):
     x: torch.Tensor
     timeinfo: torch.Tensor
+    tag: List[str]
 
 @dataclass
 class Configuration:
